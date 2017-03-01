@@ -11,5 +11,9 @@
     "executable": {
         "name": "cpm-manage",
         "main": "Manage"
-  }
+    },
+    "source": {
+        "git": "https://git.ps.informatik.uni-kiel.de/curry-packages/cpm-manage.git",
+        "tag": "$version"
+    }
 }
