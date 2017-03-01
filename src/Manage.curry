@@ -14,7 +14,7 @@ import Directory ( copyFile, doesFileExist, doesDirectoryExist
 import FilePath  ( (</>) )
 import System    ( getArgs, exitWith, system )
 
-import CPM.Config   (repositoryDir, readConfiguration)
+import CPM.Config   (repositoryDir, packageInstallDir, readConfiguration)
 import CPM.FileUtil (inTempDir)
 import CPM.Package
 
@@ -76,9 +76,9 @@ addNewPackage pkgfile = do
               Right p  -> p
   let pkgName          = name pkg
       pkgVersion       = version pkg
-      pkgLocalDir      = pkgName </> showVersion pkgVersion
-      pkgCheckoutDir   = pkgName ++ "-" ++ showVersion pkgVersion
-      pkgRepositoryDir = repositoryDir config </> pkgLocalDir
+      pkgIndexDir      = pkgName </> showVersion pkgVersion
+      pkgCheckoutDir   = packageId pkg
+      pkgRepositoryDir = repositoryDir config </> pkgIndexDir
   expkgdir <- doesDirectoryExist pkgRepositoryDir
   when expkgdir (error $ "Package repository directory '" ++ pkgRepositoryDir ++
                          "' already exists!")
@@ -86,22 +86,24 @@ addNewPackage pkgfile = do
   createDirectoryIfMissing True pkgRepositoryDir
   copyFile pkgfile (pkgRepositoryDir </> "package.json")
   putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
-  let cmd = unwords ["cpm", "checkout", pkgName, showVersion pkgVersion, "&&"
+  let cmd = unwords [ "cpm", "checkout", pkgName, showVersion pkgVersion, "&&"
                     , "cd", pkgCheckoutDir, "&&"
                     , "cpm", "install", "&&"
                     , "cpm", "test", "&&"
                     , "cd ..", "&&", "rm -rf", pkgCheckoutDir]
   putStrLn $ "\nChecking new package with command:\n" ++ cmd
-  ecode <- inTempDir (system cmd)
+  ecode <- inTempDir $ system cmd
   when (ecode>0) $ do
+    inTempDir (system $ "rm -rf " ++ pkgCheckoutDir)
     system $ "rm -rf " ++ pkgRepositoryDir
+    system $ "rm -rf " ++ packageInstallDir config </> packageId pkg
     putStrLn "Unable to checkout, package deleted in repository directory!"
     exitWith 1
   putStrLn $ "\nEverything looks fine..."
   putStrLn $ "\nTo publish the new repository directory, run command:\n"
   putStrLn $ "cd " ++ repositoryDir config ++
-             " && git add " ++ pkgLocalDir </> "package.json" ++
-             " && git commit -m\"" ++ pkgLocalDir ++ " added\" " ++
+             " && git add " ++ pkgIndexDir </> "package.json" ++
+             " && git commit -m\"" ++ pkgIndexDir ++ " added\" " ++
              " && git push origin master"
 
 ------------------------------------------------------------------------------
