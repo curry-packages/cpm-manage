@@ -14,8 +14,8 @@ import Directory ( copyFile, doesFileExist, doesDirectoryExist
 import FilePath  ( (</>) )
 import System    ( getArgs, exitWith, system )
 
-import CPM.Config   (repositoryDir, packageInstallDir, readConfiguration)
-import CPM.FileUtil (inTempDir)
+import CPM.Config   ( repositoryDir, packageInstallDir, readConfiguration )
+import CPM.FileUtil ( inTempDir )
 import CPM.Package
 
 main :: IO ()
@@ -39,18 +39,22 @@ testAllPackages :: IO ()
 testAllPackages = do
   system ("cpm list --all --csv > allpkgs.csv")
   allinfos <- readCSVFile "allpkgs.csv" >>= return . tail
-  mapIO_ testPackage allinfos
+  inTempDir $ mapIO_ testPackage allinfos
   system "rm -f allpkgs.csv" >> done
  where
   testPackage pkginfo = case pkginfo of
     [name,_,version] -> do
       putStrLn $ unlines [dline, "Testing: " ++ name ++ " " ++ version, dline]
-      let cmd = unwords [ "cpm","checkout",name,version,"&&"
-                        , "cd", name++"-"++version, "&&"
-                        , "cpm", "install", "&&"
-                        , "cpm", "test", "&&"
-                        , "cd ..", "&&", "rm -rf", name++"-"++version
-                        ]
+      let cmd = unwords
+                  [ "cpm","checkout", name, version, "&&"
+                  , "cd", name, "&&"
+                  -- install possible binaries locally:
+                  , "cpm", "-d bin_install_path=`pwd`/bin", "install", "&&"
+                  , "export PATH=`pwd`/bin:$PATH", "&&"
+                  , "cpm", "test", "&&"
+                  , "cd ..", "&&"
+                  , "rm -rf", name
+                  ]
       putStrLn $ "CMD: " ++ cmd
       ecode <- system cmd
       when (ecode>0) $ error "ERROR OCCURED!!!"
@@ -77,7 +81,7 @@ addNewPackage pkgfile = do
   let pkgName          = name pkg
       pkgVersion       = version pkg
       pkgIndexDir      = pkgName </> showVersion pkgVersion
-      pkgCheckoutDir   = packageId pkg
+      pkgCheckoutDir   = name pkg
       pkgRepositoryDir = repositoryDir config </> pkgIndexDir
   expkgdir <- doesDirectoryExist pkgRepositoryDir
   when expkgdir (error $ "Package repository directory '" ++ pkgRepositoryDir ++
