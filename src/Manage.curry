@@ -10,12 +10,13 @@ module Manage(main) where
 
 import CSV       ( readCSVFile )
 import Directory ( copyFile, doesFileExist, doesDirectoryExist
-                 , createDirectoryIfMissing )
+                 , createDirectoryIfMissing, getCurrentDirectory )
 import FilePath  ( (</>) )
+import List      ( sum )
 import System    ( getArgs, exitWith, system )
 
 import CPM.Config   ( repositoryDir, packageInstallDir, readConfiguration )
-import CPM.FileUtil ( inTempDir )
+import CPM.FileUtil ( inTempDir, recreateDirectory )
 import CPM.Package
 
 main :: IO ()
@@ -37,27 +38,43 @@ helpText = unlines $
 -- Run `cpm test` on all packages of the central repository
 testAllPackages :: IO ()
 testAllPackages = do
-  system ("cpm list --all --csv > allpkgs.csv")
+  --system ("cpm list --all --csv > allpkgs.csv")
+  system ("cpm list --csv > allpkgs.csv")
   allinfos <- readCSVFile "allpkgs.csv" >>= return . tail
-  inTempDir $ mapIO_ testPackage allinfos
+  runAllTests allinfos
   system "rm -f allpkgs.csv" >> done
  where
-  testPackage pkginfo = case pkginfo of
+  runAllTests allinfos = do
+    -- create installation bin dir:
+    curdir <- getCurrentDirectory
+    let bindir = curdir </> "pkgbin"
+    recreateDirectory bindir
+    results <- mapIO (testPackage bindir) allinfos
+    if sum (map fst results) == 0
+      then putStrLn "PACKAGES SUCCESSFULLY TESTED!"
+      else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
+                         unwords (map snd (filter ((> 0) . fst) results))
+              exitWith 1
+
+  testPackage bindir pkginfo = case pkginfo of
     [name,_,version] -> do
-      putStrLn $ unlines [dline, "Testing: " ++ name ++ " " ++ version, dline]
+      let pkgname = name ++ "-" ++ version
+      putStrLn $ unlines [dline, "Testing: " ++ pkgname, dline]
       let cmd = unwords
-                  [ "cpm","checkout", name, version, "&&"
+                  [ "rm -rf", name, "&&"
+                  , "cpm","checkout", name, version, "&&"
                   , "cd", name, "&&"
-                  -- install possible binaries locally:
-                  , "cpm", "-d bin_install_path=`pwd`/bin", "install", "&&"
-                  , "export PATH=`pwd`/bin:$PATH", "&&"
+                  -- install possible binaries in bindir:
+                  , "cpm", "-d bin_install_path="++bindir, "install", "&&"
+                  , "export PATH="++bindir++":$PATH", "&&"
                   , "cpm", "test", "&&"
                   , "cd ..", "&&"
                   , "rm -rf", name
                   ]
       putStrLn $ "CMD: " ++ cmd
       ecode <- system cmd
-      when (ecode>0) $ error "ERROR OCCURED!!!"
+      when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '"++pkgname++ "'!"
+      return (ecode,pkgname)
     _ -> error $ "Illegal package info: " ++ show pkginfo
 
   dline = take 78 (repeat '=')
