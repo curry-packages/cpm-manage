@@ -12,6 +12,8 @@ import CSV       ( readCSVFile )
 import Directory ( copyFile, doesFileExist, doesDirectoryExist
                  , createDirectoryIfMissing, getCurrentDirectory )
 import FilePath  ( (</>) )
+import HTML
+import IOExts    ( evalCmd )
 import List      ( sum )
 import System    ( getArgs, exitWith, system )
 
@@ -23,6 +25,7 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
+    ["genhtml"]     -> writeAllPackagesAsHTML
     ["testall"]     -> testAllPackages
     ["add",pkgfile] -> addNewPackage pkgfile
     _               -> do putStrLn $ "Wrong arguments!\n\n" ++ helpText
@@ -32,13 +35,50 @@ helpText :: String
 helpText = unlines $
   [ "Options:", ""
   , "add package.json : add this package to the central repository"
+  , "genhtml          : generate HTML pages of central repository"
   , "testall          : test all packages of the central repository"]
+
+------------------------------------------------------------------------------
+-- Generate web pages of the central repository
+writeAllPackagesAsHTML :: IO ()
+writeAllPackagesAsHTML = do
+  system ("cpm list --csv > allpkgs.csv")
+  allinfos <- readCSVFile "allpkgs.csv" >>= return . tail
+  let indexfile = "index.html"
+  putStrLn $ "Writing '" ++ indexfile ++ "'..."
+  writeVisibleFile indexfile $ showHtmlPage $
+    standardPage "Curry Packages in the CPM Repository"
+                 [packageInfosAsHtmlTable allinfos]
+  mapIO_ writePackageAsHTML allinfos
+  system "rm -f allpkgs.csv" >> done
+ where
+  writePackageAsHTML pkginfo = case pkginfo of
+    [name,_,version] -> do
+      let htmlfile = name ++ ".html"
+      putStrLn $ "Writing '" ++ htmlfile ++ "'..."
+      (_,out,_) <- evalCmd "cpm" ["info","-a","-p",name,version] ""
+      writeVisibleFile htmlfile $ showHtmlPage $
+        standardPage ("Curry Package '"++name++"'") [verbatim out]
+    _ -> error $ "Illegal package info: " ++ show pkginfo
+
+  writeVisibleFile f s = writeFile f s >> system ("chmod 644 " ++ f) >> done
+
+-- Format a list of package infos (name, synopsi, version) as an HTML table
+packageInfosAsHtmlTable :: [[String]] -> HtmlExp
+packageInfosAsHtmlTable pkginfos =
+  headedTable $ [map ((:[]) . htxt)  ["Name", "Synopsis", "Version"] ] ++
+                map formatPkg pkginfos
+ where
+  formatPkg pkginfo = case pkginfo of
+    [pname,psyn,pversion] ->  [ [href (pname++".html") [htxt pname]]
+                              , [htxt psyn], [htxt pversion] ]
+    _ -> error $ "Illegal package info: " ++ show pkginfo
+
 
 ------------------------------------------------------------------------------
 -- Run `cpm test` on all packages of the central repository
 testAllPackages :: IO ()
 testAllPackages = do
-  --system ("cpm list --all --csv > allpkgs.csv")
   system ("cpm list --csv > allpkgs.csv")
   allinfos <- readCSVFile "allpkgs.csv" >>= return . tail
   runAllTests allinfos
@@ -51,7 +91,7 @@ testAllPackages = do
     recreateDirectory bindir
     results <- mapIO (testPackage bindir) allinfos
     if sum (map fst results) == 0
-      then putStrLn "PACKAGES SUCCESSFULLY TESTED!"
+      then putStrLn $ show (length allinfos) ++ " PACKAGES SUCCESSFULLY TESTED!"
       else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
                          unwords (map snd (filter ((> 0) . fst) results))
               exitWith 1
