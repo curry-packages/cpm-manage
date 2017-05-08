@@ -215,15 +215,32 @@ addNewPackage pkgfile = do
              " && git push origin master"
 
 ------------------------------------------------------------------------------
+-- Re-tag the current git version with the current package version
+-- and copy the package spec file to the cpm index
 updateTagOfPackage :: IO ()
 updateTagOfPackage = do
   loadPackageSpec "." |>= \pkg ->
-   updateTagInGit ('v' : showVersion (version pkg))
+   updateTagInGit ('v' : showVersion (version pkg)) |>
+   updateCpmIndex pkg
   done
  where
   updateTagInGit t = do
     let cmd = unwords ["git tag -d",t,"&&","git tag -a",t,"-m",t,"&&",
                        "git push --tags -f"]
+    putStrLn $ "Execute: " ++ cmd
+    system cmd
+    succeedIO ()
+
+  updateCpmIndex pkg = do
+    config <- readConfiguration >>= \c -> case c of
+      Left err -> do
+        putStrLn $ "Error reading .cpmrc file: " ++ err
+        exitWith 1
+      Right c' -> return c'
+    let pkgFile          = "package.json"
+        pkgIndexDir      = name pkg </> showVersion (version pkg)
+        pkgRepositoryDir = repositoryDir config </> pkgIndexDir
+        cmd = unwords ["cp -f", pkgFile, pkgRepositoryDir </> pkgFile]
     putStrLn $ "Execute: " ++ cmd
     system cmd
     succeedIO ()
