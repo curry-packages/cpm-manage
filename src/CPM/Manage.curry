@@ -6,7 +6,8 @@
 ---
 ------------------------------------------------------------------------------
 
-module Manage(main) where
+module CPM.Manage ( main )
+  where
 
 import CSV       ( readCSVFile )
 import Directory ( copyFile, doesFileExist, doesDirectoryExist
@@ -18,16 +19,27 @@ import List      ( sum )
 import System    ( getArgs, exitWith, system )
 
 import CPM.Config   ( repositoryDir, packageInstallDir, readConfiguration )
+import CPM.ErrorLogger
 import CPM.FileUtil ( inTempDir, recreateDirectory )
 import CPM.Package
+
+--- Base URL of CPM documentations
+cpmBaseURL :: String
+cpmBaseURL = "http://www-ps.informatik.uni-kiel.de/~mh/curry/cpm/"
+
+--- Directory of CPM documentations
+cpmHtmlDir :: String
+cpmHtmlDir = "/net/medoc/home/mh/public_html/curry/cpm"
 
 main :: IO ()
 main = do
   args <- getArgs
   case args of
     ["genhtml"]     -> writeAllPackagesAsHTML
+    ["gendocs"]     -> generateDocsOfAllPackages
     ["testall"]     -> testAllPackages
     ["add",pkgfile] -> addNewPackage pkgfile
+    ["updatetag"]   -> updateTagOfPackage
     _               -> do putStrLn $ "Wrong arguments!\n\n" ++ helpText
                           exitWith 1
 
@@ -35,8 +47,13 @@ helpText :: String
 helpText = unlines $
   [ "Options:", ""
   , "add package.json : add this package to the central repository"
-  , "genhtml          : generate HTML pages of central repository"
-  , "testall          : test all packages of the central repository"]
+  , "genhtml          : generate HTML pages of central repository (in local files)"
+  , "gendocs          : generate HTML documentations of all packages (in directory"
+  , "                   " ++ cpmHtmlDir ++ ")"
+  , "testall          : test all packages of the central repository"
+  , "updatetag        : update current tag in locale package, i.e., delete it"
+  , "                   and add it in the git repository"
+  ]
 
 ------------------------------------------------------------------------------
 -- Generate web pages of the central repository
@@ -57,11 +74,15 @@ writeAllPackagesAsHTML = do
       let htmlfile = name ++ ".html"
       putStrLn $ "Writing '" ++ htmlfile ++ "'..."
       (_,out,_) <- evalCmd "cpm" ["info","-a","-p",name,version] ""
+      let apiref = cpmBaseURL ++ "DOC_" ++ name
       writeVisibleFile htmlfile $ showHtmlPage $
-        standardPage ("Curry Package '"++name++"'") [verbatim out]
+        standardPage ("Curry Package '"++name++"'")
+                     [h2 [href apiref [htxt "API documentation"]],
+                      verbatim out]
     _ -> error $ "Illegal package info: " ++ show pkginfo
 
   writeVisibleFile f s = writeFile f s >> system ("chmod 644 " ++ f) >> done
+
 
 -- Format a list of package infos (name, synopsi, version) as an HTML table
 packageInfosAsHtmlTable :: [[String]] -> HtmlExp
@@ -74,6 +95,31 @@ packageInfosAsHtmlTable pkginfos =
                               , [htxt psyn], [htxt pversion] ]
     _ -> error $ "Illegal package info: " ++ show pkginfo
 
+
+------------------------------------------------------------------------------
+-- Generate HTML documentation of all packages in the central repository
+generateDocsOfAllPackages :: IO ()
+generateDocsOfAllPackages = do
+  system ("cpm list --csv > allpkgs.csv")
+  allinfos <- readCSVFile "allpkgs.csv" >>= return . tail
+  mapIO_ genDocOfPackage allinfos
+  system "rm -f allpkgs.csv" >> done
+ where
+  genDocOfPackage pkginfo = case pkginfo of
+    [name,_,version] -> do
+      putStrLn $ unlines [dline, "Documenting: " ++ name, dline]
+      let docdir = cpmHtmlDir </> "DOC_" ++ name
+          cmd = unwords [ "rm -rf", name, "&&"
+                        , "cpm","checkout", name, version, "&&"
+                        , "cd", name, "&&"
+                        , "cpm", "install", "--noexec", "&&"
+                        , "cpm", "doc", "--docdir", docdir, "&&"
+                        , "cd ..", "&&"
+                        , "rm -rf", name
+                        ]
+      putStrLn $ "CMD: " ++ cmd
+      system cmd
+    _ -> error $ "Illegal package info: " ++ show pkginfo
 
 ------------------------------------------------------------------------------
 -- Run `cpm test` on all packages of the central repository
@@ -117,7 +163,8 @@ testAllPackages = do
       return (ecode,pkgname)
     _ -> error $ "Illegal package info: " ++ show pkginfo
 
-  dline = take 78 (repeat '=')
+dline :: String
+dline = take 78 (repeat '=')
 
 ------------------------------------------------------------------------------
 -- Add a new package where the name of the package description file
@@ -166,5 +213,19 @@ addNewPackage pkgfile = do
              " && git add " ++ pkgIndexDir </> "package.json" ++
              " && git commit -m\"" ++ pkgIndexDir ++ " added\" " ++
              " && git push origin master"
+
+------------------------------------------------------------------------------
+updateTagOfPackage :: IO ()
+updateTagOfPackage = do
+  loadPackageSpec "." |>= \pkg ->
+   updateTagInGit ('v' : showVersion (version pkg))
+  done
+ where
+  updateTagInGit t = do
+    let cmd = unwords ["git tag -d",t,"&&","git tag -a",t,"-m",t,"&&",
+                       "git push --tags -f"]
+    putStrLn $ "Execute: " ++ cmd
+    system cmd
+    succeedIO ()
 
 ------------------------------------------------------------------------------

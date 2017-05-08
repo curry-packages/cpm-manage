@@ -1,16 +1,20 @@
 {
     "name": "cpm-manage",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "author": "Michael Hanus <mh@informatik.uni-kiel.de>",
     "synopsis": "Tools to manage the main repository of the Curry Package Manager",
     "category": [ "Packaging" ],
     "dependencies": {
         "cpm": ">= 0.0.1"
     },
-    "exportedModules": [ "Manage" ],
+    "compilerCompatibility": {
+        "pakcs": ">= 1.14.0, < 2.0.0",
+        "kics2": ">= 0.5.0, < 2.0.0"
+    },
+    "exportedModules": [ "CPM.Manage" ],
     "executable": {
         "name": "cpm-manage",
-        "main": "Manage"
+        "main": "CPM.Manage"
     },
     "source": {
         "git": "https://git.ps.informatik.uni-kiel.de/curry-packages/cpm-manage.git",
