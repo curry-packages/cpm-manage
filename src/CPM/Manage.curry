@@ -209,10 +209,10 @@ addNewPackage pkgfile = do
     exitWith 1
   putStrLn $ "\nEverything looks fine..."
   putStrLn $ "\nTo publish the new repository directory, run command:\n"
-  putStrLn $ "cd " ++ repositoryDir config ++
+  putStrLn $ "pushd " ++ repositoryDir config ++
              " && git add " ++ pkgIndexDir </> "package.json" ++
              " && git commit -m\"" ++ pkgIndexDir ++ " added\" " ++
-             " && git push origin master"
+             " && git push origin master && popd"
 
 ------------------------------------------------------------------------------
 -- Re-tag the current git version with the current package version
