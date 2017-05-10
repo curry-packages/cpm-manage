@@ -16,6 +16,7 @@ import FilePath  ( (</>) )
 import HTML
 import IOExts    ( evalCmd )
 import List      ( sum )
+import Maybe     ( isJust )
 import System    ( getArgs, exitWith, system )
 
 import CPM.Config   ( repositoryDir, packageInstallDir, readConfiguration )
@@ -135,12 +136,16 @@ testAllPackages = do
     curdir <- getCurrentDirectory
     let bindir = curdir </> "pkgbin"
     recreateDirectory bindir
-    results <- mapIO (testPackage bindir) allinfos
+    results <- mapIO (testPackage bindir) (filter isValidVersion allinfos)
     if sum (map fst results) == 0
       then putStrLn $ show (length allinfos) ++ " PACKAGES SUCCESSFULLY TESTED!"
       else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
                          unwords (map snd (filter ((> 0) . fst) results))
               exitWith 1
+
+  isValidVersion pkginfo = case pkginfo of
+    [_,_,version] -> isJust (readVersion version)
+    _             -> False
 
   testPackage bindir pkginfo = case pkginfo of
     [name,_,version] -> do
