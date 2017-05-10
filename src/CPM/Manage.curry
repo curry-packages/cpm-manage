@@ -57,11 +57,22 @@ helpText = unlines $
   ]
 
 ------------------------------------------------------------------------------
+---- Get infos of all packages with a valid version.
+allValidPackageInfos :: IO [[String]]
+allValidPackageInfos = do
+  system ("cpm list --csv > allpkgs.csv")
+  allinfos <- readCSVFile "allpkgs.csv" >>= return . tail
+  return $ filter isValidVersion allinfos
+ where
+  isValidVersion pkginfo = case pkginfo of
+    [_,_,version] -> isJust (readVersion version)
+    _             -> False
+
+------------------------------------------------------------------------------
 -- Generate web pages of the central repository
 writeAllPackagesAsHTML :: IO ()
 writeAllPackagesAsHTML = do
-  system ("cpm list --csv > allpkgs.csv")
-  allinfos <- readCSVFile "allpkgs.csv" >>= return . tail
+  allinfos <- allValidPackageInfos
   let indexfile = "index.html"
   putStrLn $ "Writing '" ++ indexfile ++ "'..."
   writeVisibleFile indexfile $ showHtmlPage $
@@ -101,8 +112,7 @@ packageInfosAsHtmlTable pkginfos =
 -- Generate HTML documentation of all packages in the central repository
 generateDocsOfAllPackages :: IO ()
 generateDocsOfAllPackages = do
-  system ("cpm list --csv > allpkgs.csv")
-  allinfos <- readCSVFile "allpkgs.csv" >>= return . tail
+  allinfos <- allValidPackageInfos
   mapIO_ genDocOfPackage allinfos
   system "rm -f allpkgs.csv" >> done
  where
@@ -126,8 +136,7 @@ generateDocsOfAllPackages = do
 -- Run `cpm test` on all packages of the central repository
 testAllPackages :: IO ()
 testAllPackages = do
-  system ("cpm list --csv > allpkgs.csv")
-  allinfos <- readCSVFile "allpkgs.csv" >>= return . tail
+  allinfos <- allValidPackageInfos
   runAllTests allinfos
   system "rm -f allpkgs.csv" >> done
  where
@@ -136,16 +145,12 @@ testAllPackages = do
     curdir <- getCurrentDirectory
     let bindir = curdir </> "pkgbin"
     recreateDirectory bindir
-    results <- mapIO (testPackage bindir) (filter isValidVersion allinfos)
+    results <- mapIO (testPackage bindir) allinfos
     if sum (map fst results) == 0
       then putStrLn $ show (length allinfos) ++ " PACKAGES SUCCESSFULLY TESTED!"
       else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
                          unwords (map snd (filter ((> 0) . fst) results))
               exitWith 1
-
-  isValidVersion pkginfo = case pkginfo of
-    [_,_,version] -> isJust (readVersion version)
-    _             -> False
 
   testPackage bindir pkginfo = case pkginfo of
     [name,_,version] -> do
