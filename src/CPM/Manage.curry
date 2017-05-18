@@ -15,14 +15,17 @@ import Directory ( copyFile, doesFileExist, doesDirectoryExist
 import FilePath  ( (</>) )
 import HTML
 import IOExts    ( evalCmd )
-import List      ( sum )
+import List      ( findIndex, nub, replace, sum, union )
 import Maybe     ( isJust )
 import System    ( getArgs, exitWith, system )
 
-import CPM.Config   ( repositoryDir, packageInstallDir, readConfiguration )
+import CPM.Config     ( repositoryDir, packageInstallDir, readConfiguration )
 import CPM.ErrorLogger
-import CPM.FileUtil ( inTempDir, recreateDirectory )
+import CPM.FileUtil   ( inTempDir, recreateDirectory )
 import CPM.Package
+import CPM.Repository ( allPackages, readRepository )
+
+import ShowDotGraph
 
 --- Base URL of CPM documentations
 cpmBaseURL :: String
@@ -41,6 +44,7 @@ main = do
     ["testall"]     -> testAllPackages
     ["add",pkgfile] -> addNewPackage pkgfile
     ["updatetag"]   -> updateTagOfPackage
+    ["showgraph"]   -> showAllPackageDependencies
     _               -> do putStrLn $ "Wrong arguments!\n\n" ++ helpText
                           exitWith 1
 
@@ -54,6 +58,7 @@ helpText = unlines $
   , "testall          : test all packages of the central repository"
   , "updatetag        : update current tag in locale package, i.e., delete it"
   , "                   and add it in the git repository"
+  , "showgraph        : visualize all package dependencies as dot graph"
   ]
 
 ------------------------------------------------------------------------------
@@ -254,5 +259,29 @@ updateTagOfPackage = do
     putStrLn $ "Execute: " ++ cmd
     system cmd
     succeedIO ()
+
+------------------------------------------------------------------------------
+-- Show package dependencies as graph
+showAllPackageDependencies :: IO ()
+showAllPackageDependencies = do
+  config <- readConfiguration >>= \c -> case c of
+    Left err -> do
+      putStrLn $ "Error reading .cpmrc file: " ++ err
+      exitWith 1
+    Right c' -> return c'
+  pkgs <- readRepository config >>= return . allPackages . fst
+  let alldeps = map (\p -> (name p, map (\ (Dependency p' _) -> p')
+                                        (dependencies p)))
+                    pkgs
+      dotgraph = depsToGraph alldeps
+  putStrLn $ "Show dot graph..."
+  viewDotGraph dotgraph
+
+depsToGraph :: [(String, [String])] -> DotGraph
+depsToGraph cpmdeps =
+  Graph "CPM Dependencies"
+        (map (\s -> Node s []) (nub (map fst cpmdeps ++ concatMap snd cpmdeps)))
+        (map (\ (s,t) -> Edge s t [])
+             (nub (concatMap (\ (p,ds) -> map (\d -> (p,d)) ds) cpmdeps)))
 
 ------------------------------------------------------------------------------
