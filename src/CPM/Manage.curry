@@ -23,7 +23,7 @@ import CPM.Config     ( repositoryDir, packageInstallDir, readConfiguration )
 import CPM.ErrorLogger
 import CPM.FileUtil   ( inTempDir, recreateDirectory )
 import CPM.Package
-import CPM.Repository ( allPackages, readRepository )
+import CPM.Repository ( allPackages, readRepository, updateRepositoryCache )
 
 import ShowDotGraph
 
@@ -208,6 +208,7 @@ addNewPackage pkgfile = do
   putStrLn $ "Create directory: " ++ pkgRepositoryDir
   createDirectoryIfMissing True pkgRepositoryDir
   copyFile pkgfile (pkgRepositoryDir </> "package.json")
+  updateRepositoryCache config
   putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
   let cmd = unwords [ "cpm", "checkout", pkgName, showVersion pkgVersion, "&&"
                     , "cd", pkgCheckoutDir, "&&"
@@ -220,6 +221,7 @@ addNewPackage pkgfile = do
     inTempDir (system $ "rm -rf " ++ pkgCheckoutDir)
     system $ "rm -rf " ++ pkgRepositoryDir
     system $ "rm -rf " ++ packageInstallDir config </> packageId pkg
+    updateRepositoryCache config
     putStrLn "Unable to checkout, package deleted in repository directory!"
     exitWith 1
   putStrLn $ "\nEverything looks fine..."
@@ -258,6 +260,7 @@ updateTagOfPackage = do
         cmd = unwords ["cp -f", pkgFile, pkgRepositoryDir </> pkgFile]
     putStrLn $ "Execute: " ++ cmd
     system cmd
+    updateRepositoryCache config
     succeedIO ()
 
 ------------------------------------------------------------------------------
@@ -269,7 +272,7 @@ showAllPackageDependencies = do
       putStrLn $ "Error reading .cpmrc file: " ++ err
       exitWith 1
     Right c' -> return c'
-  pkgs <- readRepository config >>= return . allPackages . fst
+  pkgs <- readRepository config >>= return . allPackages
   let alldeps = map (\p -> (name p, map (\ (Dependency p' _) -> p')
                                         (dependencies p)))
                     pkgs
