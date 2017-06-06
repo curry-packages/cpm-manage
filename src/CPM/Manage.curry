@@ -1,29 +1,29 @@
 ------------------------------------------------------------------------------
 --- This module implements tools to manage the central repository:
 ---
---- > cpm-manage add package.json: add this package to the central repository
---- > cpm-manage testall: test all packages of the central repository
+--- Run "cpm-manage -h" to see all options.
 ---
 ------------------------------------------------------------------------------
 
 module CPM.Manage ( main )
   where
 
-import CSV       ( readCSVFile )
 import Directory ( copyFile, doesFileExist, doesDirectoryExist
                  , createDirectoryIfMissing, getCurrentDirectory )
-import FilePath  ( (</>) )
+import FilePath  ( (</>), replaceExtension )
 import HTML
-import IOExts    ( evalCmd )
-import List      ( findIndex, nub, replace, sum, union )
-import Maybe     ( isJust )
+import List      ( findIndex, nub, replace, sortBy, sum, union )
 import System    ( getArgs, exitWith, system )
 
 import CPM.Config     ( repositoryDir, packageInstallDir, readConfiguration )
 import CPM.ErrorLogger
 import CPM.FileUtil   ( inTempDir, recreateDirectory )
 import CPM.Package
-import CPM.Repository ( allPackages, readRepository, updateRepositoryCache )
+import CPM.PackageCopy ( renderPackageInfo )
+import qualified CPM.PackageCache.Global as GC
+import CPM.Repository ( allPackages, listPackages, readRepository
+                      , updateRepositoryCache )
+import CPM.Resolution ( isCompatibleToCompiler )
 
 import ShowDotGraph
 
@@ -45,6 +45,8 @@ main = do
     ["add",pkgfile] -> addNewPackage pkgfile
     ["updatetag"]   -> updateTagOfPackage
     ["showgraph"]   -> showAllPackageDependencies
+    ["--help"]      -> putStrLn helpText
+    ["-h"]          -> putStrLn helpText
     _               -> do putStrLn $ "Wrong arguments!\n\n" ++ helpText
                           exitWith 1
 
@@ -62,121 +64,142 @@ helpText = unlines $
   ]
 
 ------------------------------------------------------------------------------
----- Get infos of all packages with a valid version.
-allValidPackageInfos :: IO [[String]]
-allValidPackageInfos = do
-  system ("cpm list --csv > allpkgs.csv")
-  allinfos <- readCSVFile "allpkgs.csv" >>= return . tail
-  return $ filter isValidVersion allinfos
+--- Get all packages. For each package, get the newest version compatible
+--- to the current compiler. If there is no compatible version and the
+--- first argument is False, get the newest version, otherwise the package
+--- is ignored.
+getAllPackageSpecs :: Bool -> IO [Package]
+getAllPackageSpecs compat = do
+  config <- readConfiguration >>= \c ->
+   case c of
+    Left err -> do putStrLn $ "Error reading .cpmrc settings: " ++ err
+                   exitWith 1
+    Right c' -> return c'
+  repo <- readRepository config
+  let allpkgs = sortBy (\ps1 ps2 -> name ps1 <= name ps2)
+                       (concatMap (filterCompatPkgs config)
+                                  (listPackages repo))
+  return allpkgs
  where
-  isValidVersion pkginfo = case pkginfo of
-    [_,_,version] -> isJust (readVersion version)
-    _             -> False
+  -- Returns the first package compatible to the current compiler.
+  -- If compat is False and there are no compatible packages,
+  -- return the first package.
+  filterCompatPkgs cfg pkgs =
+    let comppkgs = filter (isCompatibleToCompiler cfg) pkgs
+    in if null comppkgs
+         then if compat then [] else take 1 pkgs
+         else [head comppkgs]
 
 ------------------------------------------------------------------------------
 -- Generate web pages of the central repository
 writeAllPackagesAsHTML :: IO ()
 writeAllPackagesAsHTML = do
-  allinfos <- allValidPackageInfos
+  allpkgs  <- getAllPackageSpecs False
   let indexfile = "index.html"
   putStrLn $ "Writing '" ++ indexfile ++ "'..."
   writeVisibleFile indexfile $ showHtmlPage $
     standardPage "Curry Packages in the CPM Repository"
-                 [packageInfosAsHtmlTable allinfos]
-  mapIO_ writePackageAsHTML allinfos
+                 [packageInfosAsHtmlTable allpkgs]
+  mapIO_ writePackageAsHTML allpkgs
   system "rm -f allpkgs.csv" >> done
  where
-  writePackageAsHTML pkginfo = case pkginfo of
-    [name,_,version] -> do
-      let htmlfile = name ++ ".html"
-      putStrLn $ "Writing '" ++ htmlfile ++ "'..."
-      (_,out,_) <- evalCmd "cpm" ["info","-a","-p",name,version] ""
-      let apiref = cpmBaseURL ++ "DOC_" ++ name
-      writeVisibleFile htmlfile $ showHtmlPage $
-        standardPage ("Curry Package '"++name++"'")
-                     [h2 [href apiref [htxt "API documentation"]],
-                      verbatim out]
-    _ -> error $ "Illegal package info: " ++ show pkginfo
+  writePackageAsHTML pkg = do
+    let pname    = name pkg
+        htmlfile = pname ++ ".html"
+    putStrLn $ "Writing '" ++ htmlfile ++ "'..."
+    let pkginfo = renderPackageInfo True True GC.emptyCache pkg
+        apiref = cpmBaseURL ++ "DOC_" ++ pname
+        manref = manualRef pkg
+    writeVisibleFile htmlfile $ showHtmlPage $
+      standardPage ("Curry Package '"++pname++"'") $
+        [h2 [href apiref [htxt "API documentation"]]] ++
+        (maybe [] (\r -> [h2 [href r [htxt "Manual"]]]) manref) ++
+        [h3 [htxt "Package metadata:"], verbatim pkginfo]
+
+  manualRef pkg = case documentation pkg of
+    Nothing -> Nothing
+    Just (PackageDocumentation _ docmain _) ->
+     Just $ cpmBaseURL ++ "DOC_" ++ name pkg </> replaceExtension docmain ".pdf"
 
   writeVisibleFile f s = writeFile f s >> system ("chmod 644 " ++ f) >> done
 
 
--- Format a list of package infos (name, synopsi, version) as an HTML table
-packageInfosAsHtmlTable :: [[String]] -> HtmlExp
-packageInfosAsHtmlTable pkginfos =
+-- Format a list of packages as an HTML table
+packageInfosAsHtmlTable :: [Package] -> HtmlExp
+packageInfosAsHtmlTable pkgs =
   headedTable $ [map ((:[]) . htxt)  ["Name", "Synopsis", "Version"] ] ++
-                map formatPkg pkginfos
+                map formatPkg pkgs
  where
-  formatPkg pkginfo = case pkginfo of
-    [pname,psyn,pversion] ->  [ [href (pname++".html") [htxt pname]]
-                              , [htxt psyn], [htxt pversion] ]
-    _ -> error $ "Illegal package info: " ++ show pkginfo
+  formatPkg pkg =
+    [ [href (name pkg ++ ".html") [htxt $ name pkg]]
+    , [htxt $ synopsis pkg]
+    , [htxt $ showVersion (version pkg)] ]
 
 
 ------------------------------------------------------------------------------
 -- Generate HTML documentation of all packages in the central repository
 generateDocsOfAllPackages :: IO ()
 generateDocsOfAllPackages = do
-  allinfos <- allValidPackageInfos
-  mapIO_ genDocOfPackage allinfos
+  allpkgs <- getAllPackageSpecs True
+  mapIO_ genDocOfPackage allpkgs
   system "rm -f allpkgs.csv" >> done
  where
-  genDocOfPackage pkginfo = case pkginfo of
-    [name,_,version] -> do
-      putStrLn $ unlines [dline, "Documenting: " ++ name, dline]
-      let docdir = cpmHtmlDir </> "DOC_" ++ name
-          cmd = unwords [ "rm -rf", name, "&&"
-                        , "cpm","checkout", name, version, "&&"
-                        , "cd", name, "&&"
-                        , "cpm", "install", "--noexec", "&&"
-                        , "cpm", "doc", "--docdir", docdir, "&&"
-                        , "cd ..", "&&"
-                        , "rm -rf", name
-                        ]
-      putStrLn $ "CMD: " ++ cmd
-      system cmd
-    _ -> error $ "Illegal package info: " ++ show pkginfo
+  genDocOfPackage pkg = do
+    let pname = name pkg
+        pversion = showVersion (version pkg)
+    putStrLn $ unlines [dline, "Documenting: " ++ pname, dline]
+    let docdir = cpmHtmlDir </> "DOC_" ++ pname
+        cmd = unwords [ "rm -rf", pname, "&&"
+                      , "cpm","checkout", pname, pversion, "&&"
+                      , "cd", pname, "&&"
+                      , "cpm", "install", "--noexec", "&&"
+                      , "cpm", "doc", "--docdir", docdir, "&&"
+                      , "cd ..", "&&"
+                      , "rm -rf", pname
+                      ]
+    putStrLn $ "CMD: " ++ cmd
+    system cmd
 
 ------------------------------------------------------------------------------
 -- Run `cpm test` on all packages of the central repository
 testAllPackages :: IO ()
 testAllPackages = do
-  allinfos <- allValidPackageInfos
-  runAllTests allinfos
+  allpkgs <- getAllPackageSpecs True
+  runAllTests allpkgs
   system "rm -f allpkgs.csv" >> done
  where
-  runAllTests allinfos = do
+  runAllTests allpkgs = do
     -- create installation bin dir:
     curdir <- getCurrentDirectory
     let bindir = curdir </> "pkgbin"
     recreateDirectory bindir
-    results <- mapIO (testPackage bindir) allinfos
+    results <- mapIO (testPackage bindir) allpkgs
     if sum (map fst results) == 0
-      then putStrLn $ show (length allinfos) ++ " PACKAGES SUCCESSFULLY TESTED!"
+      then putStrLn $ show (length allpkgs) ++ " PACKAGES SUCCESSFULLY TESTED!"
       else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
                          unwords (map snd (filter ((> 0) . fst) results))
               exitWith 1
 
-  testPackage bindir pkginfo = case pkginfo of
-    [name,_,version] -> do
-      let pkgname = name ++ "-" ++ version
-      putStrLn $ unlines [dline, "Testing: " ++ pkgname, dline]
-      let cmd = unwords
-                  [ "rm -rf", name, "&&"
-                  , "cpm","checkout", name, version, "&&"
-                  , "cd", name, "&&"
-                  -- install possible binaries in bindir:
-                  , "cpm", "-d bin_install_path="++bindir, "install", "&&"
-                  , "export PATH="++bindir++":$PATH", "&&"
-                  , "cpm", "test", "&&"
-                  , "cd ..", "&&"
-                  , "rm -rf", name
-                  ]
-      putStrLn $ "CMD: " ++ cmd
-      ecode <- system cmd
-      when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '"++pkgname++ "'!"
-      return (ecode,pkgname)
-    _ -> error $ "Illegal package info: " ++ show pkginfo
+  testPackage bindir pkg = do
+    let pname    = name pkg
+        pversion = showVersion (version pkg)
+        pkgid    = packageId pkg
+    putStrLn $ unlines [dline, "Testing: " ++ pkgid, dline]
+    let cmd = unwords
+                [ "rm -rf", pname, "&&"
+                , "cpm","checkout", pname, pversion, "&&"
+                , "cd", pname, "&&"
+                -- install possible binaries in bindir:
+                , "cpm", "-d bin_install_path="++bindir, "install", "&&"
+                , "export PATH="++bindir++":$PATH", "&&"
+                , "cpm", "test", "&&"
+                , "cd ..", "&&"
+                , "rm -rf", pname
+                ]
+    putStrLn $ "CMD: " ++ cmd
+    ecode <- system cmd
+    when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '"++pkgid++ "'!"
+    return (ecode,pkgid)
 
 dline :: String
 dline = take 78 (repeat '=')
