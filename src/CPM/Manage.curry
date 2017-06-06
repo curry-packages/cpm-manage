@@ -97,7 +97,7 @@ writeAllPackagesAsHTML = do
   allpkgs  <- getAllPackageSpecs False
   let indexfile = "index.html"
   putStrLn $ "Writing '" ++ indexfile ++ "'..."
-  writeVisibleFile indexfile $ showHtmlPage $
+  writeReadableFile indexfile $ showHtmlPage $
     standardPage "Curry Packages in the CPM Repository"
                  [packageInfosAsHtmlTable allpkgs]
   mapIO_ writePackageAsHTML allpkgs
@@ -108,30 +108,41 @@ writeAllPackagesAsHTML = do
         htmlfile = pname ++ ".html"
     putStrLn $ "Writing '" ++ htmlfile ++ "'..."
     let pkginfo = renderPackageInfo True True GC.emptyCache pkg
-        apiref = cpmBaseURL ++ "DOC_" ++ pname
-        manref = manualRef pkg
-    writeVisibleFile htmlfile $ showHtmlPage $
+        manref = manualRef pkg "Manual"
+    writeReadableFile htmlfile $ showHtmlPage $
       standardPage ("Curry Package '"++pname++"'") $
-        [h2 [href apiref [htxt "API documentation"]]] ++
-        (maybe [] (\r -> [h2 [href r [htxt "Manual"]]]) manref) ++
+        [h2 $ apiRef pkg "API documentation"] ++
+        (if null manref then [] else [h2 manref]) ++
         [h3 [htxt "Package metadata:"], verbatim pkginfo]
 
-  manualRef pkg = case documentation pkg of
-    Nothing -> Nothing
-    Just (PackageDocumentation _ docmain _) ->
-     Just $ cpmBaseURL ++ "DOC_" ++ name pkg </> replaceExtension docmain ".pdf"
+--- Writes a file readable for all:
+writeReadableFile :: String -> String -> IO ()
+writeReadableFile f s = writeFile f s >> system ("chmod 644 " ++ f) >> done
 
-  writeVisibleFile f s = writeFile f s >> system ("chmod 644 " ++ f) >> done
+--- API reference of a package:
+apiRef :: Package -> String -> [HtmlExp]
+apiRef pkg title = [href (cpmBaseURL ++ "DOC_" ++ name pkg) [htxt title]]
 
+--- Manual reference of a package:
+manualRef :: Package -> String -> [HtmlExp]
+manualRef pkg title = case documentation pkg of
+  Nothing -> []
+  Just (PackageDocumentation _ docmain _) ->
+   [href (cpmBaseURL ++ "DOC_" ++ name pkg </> replaceExtension docmain ".pdf")
+         [htxt title]]
 
 -- Format a list of packages as an HTML table
 packageInfosAsHtmlTable :: [Package] -> HtmlExp
 packageInfosAsHtmlTable pkgs =
-  headedTable $ [map ((:[]) . htxt)  ["Name", "Synopsis", "Version"] ] ++
-                map formatPkg pkgs
+  headedTable $
+    [map ((:[]) . htxt)  ["Name", "API", "Doc","Synopsis", "Version"] ] ++
+    map formatPkg pkgs
  where
   formatPkg pkg =
     [ [href (name pkg ++ ".html") [htxt $ name pkg]]
+    , apiRef pkg "API"
+    , let manref = manualRef pkg "PDF"
+      in if null manref then [nbsp] else manref
     , [htxt $ synopsis pkg]
     , [htxt $ showVersion (version pkg)] ]
 
