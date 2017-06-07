@@ -1,0 +1,39 @@
+/* Style for CPM generated documents */
+
+table, th, td {
+  border: 1px solid black;
+  border-collapse: collapse;
+}
+
+th {
+  background-color: #ffebe6;
+  color: #c32e04;
+  font-size: 1.2em;
+}
+
+td {
+  text-align: center;
+}   
+
+a {
+  display: inline-block;
+  padding-left: 0.5em;
+  text-decoration: none;  
+}
+
+a.arrow::before {
+  content: '→ ';
+}
+
+h1 {
+    background-color: #eeeeee;
+}
+
+.metadata {
+    background-color: #eeeeee;
+}
+
+.reference {
+    font-weight: bold;
+    font-size: 1.5em;
+}
