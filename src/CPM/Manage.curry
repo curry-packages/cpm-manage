@@ -144,7 +144,7 @@ manualRef pkg small =
 packageInfosAsHtmlTable :: [Package] -> HtmlExp
 packageInfosAsHtmlTable pkgs =
   headedTable $
-    [map ((:[]) . htxt)  ["Name", "API", "Doc","Synopsis", "Version"] ] ++
+    [map ((:[]) . htxt)  ["Name", "API", "Doc","Executable","Synopsis", "Version"] ] ++
     map formatPkg pkgs
  where
   formatPkg pkg =
@@ -152,6 +152,9 @@ packageInfosAsHtmlTable pkgs =
     , apiRef pkg True
     , let manref = manualRef pkg True
       in if null manref then [nbsp] else manref
+    , [htxt $ maybe ""
+                    (\ (PackageExecutable n _ _) -> n)
+                    (executableSpec pkg)]
     , [htxt $ synopsis pkg]
     , [htxt $ showVersion (version pkg)] ]
 
