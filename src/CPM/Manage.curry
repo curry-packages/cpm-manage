@@ -14,6 +14,7 @@ import FilePath  ( (</>), replaceExtension )
 import HTML
 import List      ( findIndex, nub, replace, sortBy, sum, union )
 import System    ( getArgs, exitWith, system )
+import Time      ( getLocalTime, toDayString )
 
 import CPM.Config     ( repositoryDir, packageInstallDir, readConfiguration )
 import CPM.ErrorLogger
@@ -96,10 +97,15 @@ writeAllPackagesAsHTML :: IO ()
 writeAllPackagesAsHTML = do
   allpkgs  <- getAllPackageSpecs False
   let indexfile = "index.html"
+  ltime <- getLocalTime
   putStrLn $ "Writing '" ++ indexfile ++ "'..."
   writeReadableFile indexfile $ showHtmlPage $
-    cpmStandardPage "Curry Packages in the CPM Repository"
-                    [packageInfosAsHtmlTable allpkgs]
+    cpmHtmlPage "Curry Packages in the CPM Repository" $
+      [h1 [htxt "Curry Packages in the ",
+           href "http://www.curry-language.org/tools/cpm" [htxt "CPM"]
+             `addAttr` ("target","_blank"),
+           htxt $ " Repository (" ++ toDayString ltime ++ ")"],
+       packageInfosAsHtmlTable allpkgs]
   mapIO_ writePackageAsHTML allpkgs
   system "rm -f allpkgs.csv" >> done
  where
@@ -110,7 +116,7 @@ writeAllPackagesAsHTML = do
     let pkginfo = renderPackageInfo True True GC.emptyCache pkg
         manref  = manualRef pkg False
     writeReadableFile htmlfile $ showHtmlPage $
-      cpmStandardPage ("Curry Package '"++pname++"'") $
+      cpmTitledHtmlPage ("Curry Package '"++pname++"'") $
         [blockstyle "reference" $ apiRef pkg False] ++
         (if null manref then [] else [blockstyle "reference" manref]) ++
         [blockstyle "metadata"
@@ -158,10 +164,15 @@ packageInfosAsHtmlTable pkgs =
     , [htxt $ synopsis pkg]
     , [htxt $ showVersion (version pkg)] ]
 
--- Standard HTML page for CPM generated docs:
-cpmStandardPage :: String -> [HtmlExp] -> HtmlPage
-cpmStandardPage title hexps =
-  standardPage title hexps `addPageParam` pageCSS "css/cpm.css"
+--- Standard HTML page with a title for CPM generated docs.
+cpmHtmlPage :: String -> [HtmlExp] -> HtmlPage
+cpmHtmlPage title hexps =
+  page title hexps `addPageParam` pageCSS "css/cpm.css"
+
+--- Standard HTML page with a title (included in the body)
+--- for CPM generated docs:
+cpmTitledHtmlPage :: String -> [HtmlExp] -> HtmlPage
+cpmTitledHtmlPage title hexps = cpmHtmlPage title (h1 [htxt title] : hexps)
 
 ------------------------------------------------------------------------------
 -- Generate HTML documentation of all packages in the central repository
