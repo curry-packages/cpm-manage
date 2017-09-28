@@ -231,6 +231,7 @@ testAllPackages = do
                 , "cpm", "-d bin_install_path="++bindir, "install", "&&"
                 , "export PATH="++bindir++":$PATH", "&&"
                 , "cpm", "test", "&&"
+                , "cpm", "-d bin_install_path="++bindir, "uninstall", "&&"
                 , "cd ..", "&&"
                 , "rm -rf", pname
                 ]
