@@ -12,6 +12,7 @@ import Directory ( copyFile, doesFileExist, doesDirectoryExist
                  , createDirectoryIfMissing, getCurrentDirectory )
 import FilePath  ( (</>), replaceExtension )
 import HTML
+import IOExts    ( evalCmd )
 import List      ( findIndex, nub, replace, sortBy, sum, union )
 import System    ( getArgs, exitWith, system )
 import Time      ( getLocalTime, toDayString )
@@ -43,8 +44,8 @@ main = do
     ["genhtml"]     -> writeAllPackagesAsHTML
     ["gendocs"]     -> generateDocsOfAllPackages
     ["testall"]     -> testAllPackages
-    ["add",pkgfile] -> addNewPackage pkgfile
-    ["updatetag"]   -> updateTagOfPackage
+    ["add"]         -> addNewPackage
+    ["update"]      -> updatePackage
     ["showgraph"]   -> showAllPackageDependencies
     ["--help"]      -> putStrLn helpText
     ["-h"]          -> putStrLn helpText
@@ -54,14 +55,14 @@ main = do
 helpText :: String
 helpText = unlines $
   [ "Options:", ""
-  , "add package.json : add this package to the central repository"
-  , "genhtml          : generate HTML pages of central repository (in local files)"
-  , "gendocs          : generate HTML documentations of all packages (in directory"
-  , "                   " ++ cpmHtmlDir ++ ")"
-  , "testall          : test all packages of the central repository"
-  , "updatetag        : update current tag in locale package, i.e., delete it"
-  , "                   and add it in the git repository"
-  , "showgraph        : visualize all package dependencies as dot graph"
+  , "add        : add this package version to the central repository"
+  , "update     : tag git repository of local package with current version"
+  , "             and update central index with current package specification"
+  , "genhtml    : generate HTML pages of central repository (in local files)"
+  , "gendocs    : generate HTML documentations of all packages (in directory"
+  , "             " ++ cpmHtmlDir ++ ")"
+  , "testall    : test all packages of the central repository"
+  , "showgraph  : visualize all package dependencies as dot graph"
   ]
 
 ------------------------------------------------------------------------------
@@ -246,41 +247,29 @@ dline = take 78 (repeat '=')
 ------------------------------------------------------------------------------
 -- Add a new package where the name of the package description file
 -- is given as a parameter.
-addNewPackage :: String -> IO ()
-addNewPackage pkgfile = do
+addNewPackage :: IO ()
+addNewPackage = do
   config <- readConfiguration >>= \c -> case c of
     Left err -> do
       putStrLn $ "Error reading .cpmrc file: " ++ err
       exitWith 1
     Right c' -> return c'
-  expkgfile <- doesFileExist pkgfile
-  unless expkgfile (error $ "Package file '" ++ pkgfile ++ "' does not exist!")
-  pkgtxt <- readFile pkgfile
-  let pkg = case readPackageSpec pkgtxt of
-              Left err -> error err
-              Right p  -> p
+  pkg <- fromErrorLogger (loadPackageSpec ".")
+  setTagInGit pkg
   let pkgName          = name pkg
       pkgVersion       = version pkg
       pkgIndexDir      = pkgName </> showVersion pkgVersion
-      pkgCheckoutDir   = name pkg
       pkgRepositoryDir = repositoryDir config </> pkgIndexDir
   expkgdir <- doesDirectoryExist pkgRepositoryDir
   when expkgdir (error $ "Package repository directory '" ++ pkgRepositoryDir ++
                          "' already exists!")
   putStrLn $ "Create directory: " ++ pkgRepositoryDir
   createDirectoryIfMissing True pkgRepositoryDir
-  copyFile pkgfile (pkgRepositoryDir </> "package.json")
+  copyFile packageSpecFile (pkgRepositoryDir </> packageSpecFile)
   updateRepositoryCache config
   putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
-  let cmd = unwords [ "cpm", "checkout", pkgName, showVersion pkgVersion, "&&"
-                    , "cd", pkgCheckoutDir, "&&"
-                    , "cpm", "install", "&&"
-                    , "cpm", "test", "&&"
-                    , "cd ..", "&&", "rm -rf", pkgCheckoutDir]
-  putStrLn $ "\nChecking new package with command:\n" ++ cmd
-  ecode <- inTempDir $ system cmd
+  ecode <- testPackageVersion pkgName pkgVersion
   when (ecode>0) $ do
-    inTempDir (system $ "rm -rf " ++ pkgCheckoutDir)
     system $ "rm -rf " ++ pkgRepositoryDir
     system $ "rm -rf " ++ packageInstallDir config </> packageId pkg
     updateRepositoryCache config
@@ -289,41 +278,64 @@ addNewPackage pkgfile = do
   putStrLn $ "\nEverything looks fine..."
   putStrLn $ "\nTo publish the new repository directory, run command:\n"
   putStrLn $ "pushd " ++ repositoryDir config ++
-             " && git add " ++ pkgIndexDir </> "package.json" ++
+             " && git add " ++ pkgIndexDir </> packageSpecFile ++
              " && git commit -m\"" ++ pkgIndexDir ++ " added\" " ++
              " && git push origin master && popd"
+
+-- Test a specific version of a package by checking it out in temp dir.
+testPackageVersion :: String -> Version -> IO Int
+testPackageVersion pkgname pkgversion = do
+  let checkoutdir = pkgname
+      cmd = unwords [ "cpm", "checkout", pkgname, showVersion pkgversion, "&&"
+                    , "cd", checkoutdir, "&&"
+                    , "cpm", "install", "&&"
+                    , "cpm", "test", "&&"
+                    , "cd ..", "&&", "rm -rf", checkoutdir]
+  putStrLn $ "\nChecking package with command:\n" ++ cmd
+  ecode <- inTempDir $ system cmd
+  inTempDir (system $ "rm -rf " ++ checkoutdir)
+  return ecode
+
+-- Set the package version as a tag in the git repository.
+setTagInGit :: Package -> IO ()
+setTagInGit pkg = do
+  let ts = 'v' : showVersion (version pkg)
+  (_,gittag,_) <- evalCmd "git" ["tag","-l",ts] ""
+  let deltag = if null gittag then [] else ["git tag -d",ts,"&&"]
+      cmd    = unwords $ deltag ++ ["git tag -a",ts,"-m",ts,"&&",
+                                    "git push --tags -f"]
+  putStrLn $ "Execute: " ++ cmd
+  ecode <- system cmd
+  when (ecode > 0) $ error "ERROR in setting the git tag"
 
 ------------------------------------------------------------------------------
 -- Re-tag the current git version with the current package version
 -- and copy the package spec file to the cpm index
-updateTagOfPackage :: IO ()
-updateTagOfPackage = do
-  loadPackageSpec "." |>= \pkg ->
-   updateTagInGit ('v' : showVersion (version pkg)) |>
-   updateCpmIndex pkg
-  done
+updatePackage :: IO ()
+updatePackage = do
+  pkg <- fromErrorLogger (loadPackageSpec ".")
+  ecode <- testPackageVersion (name pkg) (version pkg)
+  if ecode == 0
+    then do
+      setTagInGit pkg
+      updateCpmIndex pkg
+    else do
+      putStrLn $ "ERROR in package, no tag update performed!"
+      exitWith 1
  where
-  updateTagInGit t = do
-    let cmd = unwords ["git tag -d",t,"&&","git tag -a",t,"-m",t,"&&",
-                       "git push --tags -f"]
-    putStrLn $ "Execute: " ++ cmd
-    system cmd
-    succeedIO ()
-
   updateCpmIndex pkg = do
     config <- readConfiguration >>= \c -> case c of
       Left err -> do
         putStrLn $ "Error reading .cpmrc file: " ++ err
         exitWith 1
       Right c' -> return c'
-    let pkgFile          = "package.json"
+    let pkgFile          = packageSpecFile
         pkgIndexDir      = name pkg </> showVersion (version pkg)
         pkgRepositoryDir = repositoryDir config </> pkgIndexDir
         cmd = unwords ["cp -f", pkgFile, pkgRepositoryDir </> pkgFile]
     putStrLn $ "Execute: " ++ cmd
     system cmd
     updateRepositoryCache config
-    succeedIO ()
 
 ------------------------------------------------------------------------------
 -- Show package dependencies as graph
@@ -348,5 +360,10 @@ depsToGraph cpmdeps =
         (map (\s -> Node s []) (nub (map fst cpmdeps ++ concatMap snd cpmdeps)))
         (map (\ (s,t) -> Edge s t [])
              (nub (concatMap (\ (p,ds) -> map (\d -> (p,d)) ds) cpmdeps)))
+
+------------------------------------------------------------------------------
+-- The name of the package specification file.
+packageSpecFile :: String
+packageSpecFile = "package.json"
 
 ------------------------------------------------------------------------------
