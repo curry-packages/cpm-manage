@@ -5,13 +5,12 @@
 ---
 ------------------------------------------------------------------------------
 
-module CPM.Manage -- ( main )
+module CPM.Manage ( main )
   where
 
 import Directory ( copyFile, doesFileExist, doesDirectoryExist
                  , createDirectoryIfMissing, getCurrentDirectory )
 import FilePath  ( (</>), replaceExtension )
-import HTML
 import IOExts    ( evalCmd )
 import List      ( findIndex, nub, replace, sortBy, sum, union )
 import System    ( getArgs, exitWith, system )
@@ -27,6 +26,7 @@ import CPM.Repository ( allPackages, listPackages, readRepository
                       , updateRepositoryCache )
 import CPM.Resolution ( isCompatibleToCompiler )
 
+import HTML.Base
 import ShowDotGraph
 
 --- Base URL of CPM documentations
