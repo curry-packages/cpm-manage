@@ -314,13 +314,12 @@ setTagInGit pkg = do
 updatePackage :: IO ()
 updatePackage = do
   pkg <- fromErrorLogger (loadPackageSpec ".")
+  setTagInGit pkg
   ecode <- testPackageVersion (name pkg) (version pkg)
   if ecode == 0
-    then do
-      setTagInGit pkg
-      updateCpmIndex pkg
+    then updateCpmIndex pkg
     else do
-      putStrLn $ "ERROR in package, no tag update performed!"
+      putStrLn $ "ERROR in package, CPM index not updated!"
       exitWith 1
  where
   updateCpmIndex pkg = do
