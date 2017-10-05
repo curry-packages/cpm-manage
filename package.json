@@ -5,8 +5,9 @@
     "synopsis": "Tools to manage the main repository of the Curry Package Manager",
     "category": [ "Packaging" ],
     "dependencies": {
-        "cpm": ">= 2.0.0",
-        "graphviz": ">= 2.0.0"
+        "cpm"     : ">= 2.0.0",
+        "graphviz": ">= 2.0.0",
+        "html"    : ">= 2.0.0"
     },
     "compilerCompatibility": {
         "pakcs": ">= 2.0.0",
