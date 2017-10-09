@@ -204,42 +204,13 @@ generateDocsOfAllPackages = do
 testAllPackages :: IO ()
 testAllPackages = do
   allpkgs <- getAllPackageSpecs True
-  runAllTests allpkgs
+  results <- mapIO checkoutAndTestPackage allpkgs
+  if sum (map fst results) == 0
+    then putStrLn $ show (length allpkgs) ++ " PACKAGES SUCCESSFULLY TESTED!"
+    else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
+                       unwords (map snd (filter ((> 0) . fst) results))
+            exitWith 1
   system "rm -f allpkgs.csv" >> done
- where
-  runAllTests allpkgs = do
-    -- create installation bin dir:
-    curdir <- getCurrentDirectory
-    let bindir = curdir </> "pkgbin"
-    recreateDirectory bindir
-    results <- mapIO (testPackage bindir) allpkgs
-    if sum (map fst results) == 0
-      then putStrLn $ show (length allpkgs) ++ " PACKAGES SUCCESSFULLY TESTED!"
-      else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
-                         unwords (map snd (filter ((> 0) . fst) results))
-              exitWith 1
-
-  testPackage bindir pkg = do
-    let pname    = name pkg
-        pversion = showVersion (version pkg)
-        pkgid    = packageId pkg
-    putStrLn $ unlines [dline, "Testing: " ++ pkgid, dline]
-    let cmd = unwords
-                [ "rm -rf", pname, "&&"
-                , "cpm","checkout", pname, pversion, "&&"
-                , "cd", pname, "&&"
-                -- install possible binaries in bindir:
-                , "cpm", "-d bin_install_path="++bindir, "install", "&&"
-                , "export PATH="++bindir++":$PATH", "&&"
-                , "cpm", "test", "&&"
-                , "cpm", "-d bin_install_path="++bindir, "uninstall", "&&"
-                , "cd ..", "&&"
-                , "rm -rf", pname
-                ]
-    putStrLn $ "CMD: " ++ cmd
-    ecode <- system cmd
-    when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '"++pkgid++ "'!"
-    return (ecode,pkgid)
 
 dline :: String
 dline = take 78 (repeat '=')
@@ -268,7 +239,7 @@ addNewPackage = do
   copyFile packageSpecFile (pkgRepositoryDir </> packageSpecFile)
   updateRepositoryCache config
   putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
-  ecode <- testPackageVersion pkgName pkgVersion
+  (ecode,_) <- checkoutAndTestPackage pkg
   when (ecode>0) $ do
     system $ "rm -rf " ++ pkgRepositoryDir
     system $ "rm -rf " ++ packageInstallDir config </> packageId pkg
@@ -282,19 +253,35 @@ addNewPackage = do
              " && git commit -m\"" ++ pkgIndexDir ++ " added\" " ++
              " && git push origin master && popd"
 
--- Test a specific version of a package by checking it out in temp dir.
-testPackageVersion :: String -> Version -> IO Int
-testPackageVersion pkgname pkgversion = do
+-- Test a specific version of a package by checking it out in temp dir,
+-- install it (with a local bin dir), and run all tests.
+-- Returns the exit code of the package test command and the packaged id.
+checkoutAndTestPackage :: Package -> IO (Int,String)
+checkoutAndTestPackage pkg = do
+  -- create installation bin dir:
+  curdir <- inTempDir getCurrentDirectory
+  let bindir = curdir </> "pkgbin"
+  recreateDirectory bindir
+  let pkgname     = name pkg
+      pkgversion  = version pkg
+      pkgid       = packageId pkg
+  putStrLn $ unlines [dline, "Testing package: " ++ pkgid, dline]
   let checkoutdir = pkgname
-      cmd = unwords [ "cpm", "checkout", pkgname, showVersion pkgversion, "&&"
-                    , "cd", checkoutdir, "&&"
-                    , "cpm", "install", "&&"
-                    , "cpm", "test", "&&"
-                    , "cd ..", "&&", "rm -rf", checkoutdir]
-  putStrLn $ "\nChecking package with command:\n" ++ cmd
+      cmd = unwords
+              [ "rm -rf", checkoutdir, "&&"
+              , "cpm", "checkout", pkgname, showVersion pkgversion, "&&"
+              , "cd", checkoutdir, "&&"
+              -- install possible binaries in bindir:
+              , "cpm", "-d bin_install_path="++bindir, "install", "&&"
+              , "export PATH="++bindir++":$PATH", "&&"
+              , "cpm", "test", "&&"
+              , "cpm", "-d bin_install_path="++bindir, "uninstall"
+              ]
+  putStrLn $ "...with command:\n" ++ cmd
   ecode <- inTempDir $ system cmd
-  inTempDir (system $ "rm -rf " ++ checkoutdir)
-  return ecode
+  inTempDir (system $ unwords ["rm -rf ", checkoutdir, bindir])
+  when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '"++pkgid++ "'!"
+  return (ecode,pkgid)
 
 -- Set the package version as a tag in the git repository.
 setTagInGit :: Package -> IO ()
@@ -313,28 +300,25 @@ setTagInGit pkg = do
 -- and copy the package spec file to the cpm index
 updatePackage :: IO ()
 updatePackage = do
+  config <- readConfiguration >>= \c -> case c of
+    Left err -> do putStrLn $ "Error reading .cpmrc file: " ++ err
+                   exitWith 1
+    Right c' -> return c'
   pkg <- fromErrorLogger (loadPackageSpec ".")
+  let pkgIndexDir      = name pkg </> showVersion (version pkg)
+      pkgRepositoryDir = repositoryDir config </> pkgIndexDir
+      pkgInstallDir    = packageInstallDir config </> packageId pkg
   setTagInGit pkg
-  ecode <- testPackageVersion (name pkg) (version pkg)
-  if ecode == 0
-    then updateCpmIndex pkg
-    else do
-      putStrLn $ "ERROR in package, CPM index not updated!"
-      exitWith 1
- where
-  updateCpmIndex pkg = do
-    config <- readConfiguration >>= \c -> case c of
-      Left err -> do
-        putStrLn $ "Error reading .cpmrc file: " ++ err
-        exitWith 1
-      Right c' -> return c'
-    let pkgFile          = packageSpecFile
-        pkgIndexDir      = name pkg </> showVersion (version pkg)
-        pkgRepositoryDir = repositoryDir config </> pkgIndexDir
-        cmd = unwords ["cp -f", pkgFile, pkgRepositoryDir </> pkgFile]
-    putStrLn $ "Execute: " ++ cmd
-    system cmd
-    updateRepositoryCache config
+  putStrLn $ "Deleting old repo copy '" ++ pkgInstallDir ++ "'..."
+  system $ "rm -rf " ++ pkgInstallDir
+  (ecode,_) <- checkoutAndTestPackage pkg
+  when (ecode > 0) $ do putStrLn $ "ERROR in package, CPM index not updated!"
+                        exitWith 1
+  let cmd = unwords
+              ["cp -f", packageSpecFile, pkgRepositoryDir </> packageSpecFile]
+  putStrLn $ "Execute: " ++ cmd
+  system cmd
+  updateRepositoryCache config
 
 ------------------------------------------------------------------------------
 -- Show package dependencies as graph
