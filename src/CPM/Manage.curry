@@ -189,10 +189,10 @@ generateDocsOfAllPackages = do
     putStrLn $ unlines [dline, "Documenting: " ++ pname, dline]
     let docdir = cpmHtmlDir </> "DOC_" ++ pname
         cmd = unwords [ "rm -rf", pname, "&&"
-                      , "cpm","checkout", pname, pversion, "&&"
+                      , "cypm","checkout", pname, pversion, "&&"
                       , "cd", pname, "&&"
-                      , "cpm", "install", "--noexec", "&&"
-                      , "cpm", "doc", "--docdir", docdir, "&&"
+                      , "cypm", "install", "--noexec", "&&"
+                      , "cypm", "doc", "--docdir", docdir, "&&"
                       , "cd ..", "&&"
                       , "rm -rf", pname
                       ]
@@ -200,7 +200,7 @@ generateDocsOfAllPackages = do
     system cmd
 
 ------------------------------------------------------------------------------
--- Run `cpm test` on all packages of the central repository
+-- Run `cypm test` on all packages of the central repository
 testAllPackages :: IO ()
 testAllPackages = do
   allpkgs <- getAllPackageSpecs True
@@ -269,13 +269,13 @@ checkoutAndTestPackage pkg = do
   let checkoutdir = pkgname
       cmd = unwords
               [ "rm -rf", checkoutdir, "&&"
-              , "cpm", "checkout", pkgname, showVersion pkgversion, "&&"
+              , "cypm", "checkout", pkgname, showVersion pkgversion, "&&"
               , "cd", checkoutdir, "&&"
               -- install possible binaries in bindir:
-              , "cpm", "-d bin_install_path="++bindir, "install", "&&"
+              , "cypm", "-d bin_install_path="++bindir, "install", "&&"
               , "export PATH="++bindir++":$PATH", "&&"
-              , "cpm", "test", "&&"
-              , "cpm", "-d bin_install_path="++bindir, "uninstall"
+              , "cypm", "test", "&&"
+              , "cypm", "-d bin_install_path="++bindir, "uninstall"
               ]
   putStrLn $ "...with command:\n" ++ cmd
   ecode <- inTempDir $ system cmd
