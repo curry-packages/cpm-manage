@@ -16,7 +16,8 @@ import List      ( findIndex, nub, replace, sortBy, sum, union )
 import System    ( getArgs, exitWith, system )
 import Time      ( getLocalTime, toDayString )
 
-import CPM.Config     ( repositoryDir, packageInstallDir, readConfiguration )
+import CPM.Config     ( repositoryDir, packageInstallDir
+                      , readConfigurationWith )
 import CPM.ErrorLogger
 import CPM.FileUtil   ( inTempDir, recreateDirectory )
 import CPM.Package
@@ -72,7 +73,7 @@ helpText = unlines $
 --- is ignored.
 getAllPackageSpecs :: Bool -> IO [Package]
 getAllPackageSpecs compat = do
-  config <- readConfiguration >>= \c ->
+  config <- readConfigurationWith [] >>= \c ->
    case c of
     Left err -> do putStrLn $ "Error reading .cpmrc settings: " ++ err
                    exitWith 1
@@ -220,7 +221,7 @@ dline = take 78 (repeat '=')
 -- is given as a parameter.
 addNewPackage :: IO ()
 addNewPackage = do
-  config <- readConfiguration >>= \c -> case c of
+  config <- readConfigurationWith [] >>= \c -> case c of
     Left err -> do
       putStrLn $ "Error reading .cpmrc file: " ++ err
       exitWith 1
@@ -300,7 +301,7 @@ setTagInGit pkg = do
 -- and copy the package spec file to the cpm index
 updatePackage :: IO ()
 updatePackage = do
-  config <- readConfiguration >>= \c -> case c of
+  config <- readConfigurationWith [] >>= \c -> case c of
     Left err -> do putStrLn $ "Error reading .cpmrc file: " ++ err
                    exitWith 1
     Right c' -> return c'
@@ -324,7 +325,7 @@ updatePackage = do
 -- Show package dependencies as graph
 showAllPackageDependencies :: IO ()
 showAllPackageDependencies = do
-  config <- readConfiguration >>= \c -> case c of
+  config <- readConfigurationWith [] >>= \c -> case c of
     Left err -> do
       putStrLn $ "Error reading .cpmrc file: " ++ err
       exitWith 1
