@@ -16,16 +16,15 @@ import List      ( findIndex, nub, replace, sortBy, sum, union )
 import System    ( getArgs, exitWith, system )
 import Time      ( getLocalTime, toDayString )
 
-import CPM.Config     ( repositoryDir, packageInstallDir
-                      , readConfigurationWith )
+import CPM.Config      ( repositoryDir, packageInstallDir
+                       , readConfigurationWith )
 import CPM.ErrorLogger
-import CPM.FileUtil   ( inTempDir, recreateDirectory )
+import CPM.FileUtil    ( inTempDir, recreateDirectory )
 import CPM.Package
 import CPM.PackageCopy ( renderPackageInfo )
-import qualified CPM.PackageCache.Global as GC
-import CPM.Repository ( allPackages, listPackages, readRepository
-                      , updateRepositoryCache )
-import CPM.Resolution ( isCompatibleToCompiler )
+import CPM.Repository  ( allPackages, listPackages, readRepository
+                       , updateRepositoryCache )
+import CPM.Resolution  ( isCompatibleToCompiler )
 
 import HTML.Base
 import ShowDotGraph
@@ -115,7 +114,7 @@ writeAllPackagesAsHTML = do
     let pname    = name pkg
         htmlfile = pname ++ ".html"
     putStrLn $ "Writing '" ++ htmlfile ++ "'..."
-    let pkginfo = renderPackageInfo True True GC.emptyCache pkg
+    let pkginfo = renderPackageInfo True True Nothing pkg
         manref  = manualRef pkg False
     writeReadableFile htmlfile $ showHtmlPage $
       cpmTitledHtmlPage ("Curry Package '"++pname++"'") $
