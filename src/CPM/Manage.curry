@@ -16,14 +16,14 @@ import List      ( findIndex, nub, replace, sortBy, sum, union )
 import System    ( getArgs, exitWith, system )
 import Time      ( getLocalTime, toDayString )
 
-import CPM.Config      ( repositoryDir, packageInstallDir
+import CPM.Config      ( Config, repositoryDir, packageInstallDir
                        , readConfigurationWith )
 import CPM.ErrorLogger
 import CPM.FileUtil    ( inTempDir, recreateDirectory )
 import CPM.Package
 import CPM.PackageCopy ( renderPackageInfo )
 import CPM.Repository  ( allPackages, listPackages, readRepository
-                       , updateRepositoryCache )
+                       , readPackageFromRepository, updateRepositoryCache )
 import CPM.Resolution  ( isCompatibleToCompiler )
 
 import HTML.Base
@@ -70,18 +70,19 @@ helpText = unlines $
 --- to the current compiler. If there is no compatible version and the
 --- first argument is False, get the newest version, otherwise the package
 --- is ignored.
-getAllPackageSpecs :: Bool -> IO [Package]
+getAllPackageSpecs :: Bool -> IO (Config,[Package])
 getAllPackageSpecs compat = do
   config <- readConfigurationWith [] >>= \c ->
    case c of
     Left err -> do putStrLn $ "Error reading .cpmrc settings: " ++ err
                    exitWith 1
     Right c' -> return c'
+  putStrLn "Reading repository..."
   repo <- readRepository config
   let allpkgs = sortBy (\ps1 ps2 -> name ps1 <= name ps2)
                        (concatMap (filterCompatPkgs config)
                                   (listPackages repo))
-  return allpkgs
+  return (config,allpkgs)
  where
   -- Returns the first package compatible to the current compiler.
   -- If compat is False and there are no compatible packages,
@@ -96,7 +97,9 @@ getAllPackageSpecs compat = do
 -- Generate web pages of the central repository
 writeAllPackagesAsHTML :: IO ()
 writeAllPackagesAsHTML = do
-  allpkgs  <- getAllPackageSpecs False
+  (config,repopkgs) <- getAllPackageSpecs False
+  putStrLn "Reading all package specifications..."
+  allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config) repopkgs
   let indexfile = "index.html"
   ltime <- getLocalTime
   putStrLn $ "Writing '" ++ indexfile ++ "'..."
@@ -179,7 +182,7 @@ cpmTitledHtmlPage title hexps = cpmHtmlPage title (h1 [htxt title] : hexps)
 -- Generate HTML documentation of all packages in the central repository
 generateDocsOfAllPackages :: IO ()
 generateDocsOfAllPackages = do
-  allpkgs <- getAllPackageSpecs True
+  (_,allpkgs) <- getAllPackageSpecs True
   mapIO_ genDocOfPackage allpkgs
   system "rm -f allpkgs.csv" >> done
  where
@@ -203,7 +206,7 @@ generateDocsOfAllPackages = do
 -- Run `cypm test` on all packages of the central repository
 testAllPackages :: IO ()
 testAllPackages = do
-  allpkgs <- getAllPackageSpecs True
+  (_,allpkgs) <- getAllPackageSpecs True
   results <- mapIO checkoutAndTestPackage allpkgs
   if sum (map fst results) == 0
     then putStrLn $ show (length allpkgs) ++ " PACKAGES SUCCESSFULLY TESTED!"
