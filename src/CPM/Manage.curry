@@ -117,7 +117,7 @@ writeAllPackagesAsHTML = do
     let pname    = name pkg
         htmlfile = pname ++ ".html"
     putStrLn $ "Writing '" ++ htmlfile ++ "'..."
-    let pkginfo = renderPackageInfo True True Nothing pkg
+    let pkginfo = renderPackageInfo True True True pkg
         manref  = manualRef pkg False
     writeReadableFile htmlfile $ showHtmlPage $
       cpmTitledHtmlPage ("Curry Package '"++pname++"'") $
