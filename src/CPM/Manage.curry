@@ -23,7 +23,7 @@ import CPM.FileUtil    ( inTempDir, recreateDirectory )
 import CPM.Package
 import CPM.PackageCopy ( renderPackageInfo )
 import CPM.Repository  ( allPackages, listPackages, readRepository
-                       , readPackageFromRepository, updateRepositoryCache )
+                       , readPackageFromRepository, cleanRepositoryCache )
 import CPM.Resolution  ( isCompatibleToCompiler )
 
 import HTML.Base
@@ -78,7 +78,7 @@ getAllPackageSpecs compat = do
                    exitWith 1
     Right c' -> return c'
   putStrLn "Reading repository..."
-  repo <- readRepository config
+  repo <- readRepository config True
   let allpkgs = sortBy (\ps1 ps2 -> name ps1 <= name ps2)
                        (concatMap (filterCompatPkgs config)
                                   (listPackages repo))
@@ -240,13 +240,13 @@ addNewPackage = do
   putStrLn $ "Create directory: " ++ pkgRepositoryDir
   createDirectoryIfMissing True pkgRepositoryDir
   copyFile packageSpecFile (pkgRepositoryDir </> packageSpecFile)
-  updateRepositoryCache config
+  cleanRepositoryCache config
   putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
   (ecode,_) <- checkoutAndTestPackage pkg
   when (ecode>0) $ do
     system $ "rm -rf " ++ pkgRepositoryDir
     system $ "rm -rf " ++ packageInstallDir config </> packageId pkg
-    updateRepositoryCache config
+    cleanRepositoryCache config
     putStrLn "Unable to checkout, package deleted in repository directory!"
     exitWith 1
   putStrLn $ "\nEverything looks fine..."
@@ -321,7 +321,7 @@ updatePackage = do
               ["cp -f", packageSpecFile, pkgRepositoryDir </> packageSpecFile]
   putStrLn $ "Execute: " ++ cmd
   system cmd
-  updateRepositoryCache config
+  cleanRepositoryCache config
 
 ------------------------------------------------------------------------------
 -- Show package dependencies as graph
@@ -332,7 +332,7 @@ showAllPackageDependencies = do
       putStrLn $ "Error reading .cpmrc file: " ++ err
       exitWith 1
     Right c' -> return c'
-  pkgs <- readRepository config >>= return . allPackages
+  pkgs <- readRepository config False >>= return . allPackages
   let alldeps = map (\p -> (name p, map (\ (Dependency p' _) -> p')
                                         (dependencies p)))
                     pkgs
