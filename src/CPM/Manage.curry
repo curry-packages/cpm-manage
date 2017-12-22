@@ -31,7 +31,7 @@ import ShowDotGraph
 
 --- Base URL of CPM documentations
 cpmBaseURL :: String
-cpmBaseURL = "http://www-ps.informatik.uni-kiel.de/~mh/curry/cpm/"
+cpmBaseURL = "http://www-ps.informatik.uni-kiel.de/~mh/curry/cpm/DOC/"
 
 --- Directory of CPM documentations
 cpmHtmlDir :: String
@@ -136,7 +136,7 @@ apiRef :: Package -> Bool -> [HtmlExp]
 apiRef pkg small =
  let title       = if small then "API" else "API documentation"
      addArrow he = if small then he else addClass he "arrow"
- in [addArrow $ href (cpmBaseURL ++ "DOC_" ++ name pkg) [htxt title]]
+ in [addArrow $ href (cpmBaseURL ++ packageId pkg) [htxt title]]
 
 --- Manual reference of a package:
 manualRef :: Package -> Bool -> [HtmlExp]
@@ -146,7 +146,7 @@ manualRef pkg small =
  in case documentation pkg of
       Nothing -> []
       Just (PackageDocumentation _ docmain _) ->
-        [addArrow $ href (cpmBaseURL ++ "DOC_" ++ name pkg </>
+        [addArrow $ href (cpmBaseURL ++ packageId pkg </>
                           replaceExtension docmain ".pdf")
                          [htxt title]]
 
