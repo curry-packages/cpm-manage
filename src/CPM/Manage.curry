@@ -35,7 +35,7 @@ cpmBaseURL = "http://www-ps.informatik.uni-kiel.de/~mh/curry/cpm/"
 
 --- Directory of CPM documentations
 cpmHtmlDir :: String
-cpmHtmlDir = "/net/medoc/home/mh/public_html/curry/cpm"
+cpmHtmlDir = "/net/medoc/home/mh/public_html/curry/cpm/DOC"
 
 main :: IO ()
 main = do
@@ -190,12 +190,11 @@ generateDocsOfAllPackages = do
     let pname = name pkg
         pversion = showVersion (version pkg)
     putStrLn $ unlines [dline, "Documenting: " ++ pname, dline]
-    let docdir = cpmHtmlDir </> "DOC"
-        cmd = unwords [ "rm -rf", pname, "&&"
+    let cmd = unwords [ "rm -rf", pname, "&&"
                       , "cypm","checkout", pname, pversion, "&&"
                       , "cd", pname, "&&"
                       , "cypm", "install", "--noexec", "&&"
-                      , "cypm", "doc", "--docdir", docdir, "&&"
+                      , "cypm", "doc", "--docdir", cpmHtmlDir, "&&"
                       , "cd ..", "&&"
                       , "rm -rf", pname
                       ]
