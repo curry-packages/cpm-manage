@@ -190,7 +190,7 @@ generateDocsOfAllPackages = do
     let pname = name pkg
         pversion = showVersion (version pkg)
     putStrLn $ unlines [dline, "Documenting: " ++ pname, dline]
-    let docdir = cpmHtmlDir </> "DOC_" ++ pname
+    let docdir = cpmHtmlDir </> "DOC"
         cmd = unwords [ "rm -rf", pname, "&&"
                       , "cypm","checkout", pname, pversion, "&&"
                       , "cd", pname, "&&"
