@@ -19,7 +19,7 @@ import Time      ( getLocalTime, toDayString )
 import CPM.Config      ( Config, repositoryDir, packageInstallDir
                        , readConfigurationWith )
 import CPM.ErrorLogger
-import CPM.FileUtil    ( inTempDir, recreateDirectory )
+import CPM.FileUtil    ( inDirectory, inTempDir, recreateDirectory )
 import CPM.Package
 import CPM.PackageCopy ( renderPackageInfo )
 import CPM.Repository  ( allPackages, listPackages, readRepository
@@ -35,7 +35,7 @@ cpmBaseURL = "http://www-ps.informatik.uni-kiel.de/~mh/curry/cpm/DOC/"
 
 --- Directory of CPM documentations
 cpmHtmlDir :: String
-cpmHtmlDir = "/net/medoc/home/mh/public_html/curry/cpm/DOC"
+cpmHtmlDir = "/net/medoc/home/mh/public_html/curry/cpm"
 
 main :: IO ()
 main = do
@@ -58,9 +58,10 @@ helpText = unlines $
   , "add        : add this package version to the central repository"
   , "update     : tag git repository of local package with current version"
   , "             and update central index with current package specification"
-  , "genhtml    : generate HTML pages of central repository (in local files)"
+  , "genhtml    : generate HTML pages of central repository (in directory"
+  , "             '" ++ cpmHtmlDir ++ "')"
   , "gendocs    : generate HTML documentations of all packages (in directory"
-  , "             " ++ cpmHtmlDir ++ ")"
+  , "             '" ++ cpmHtmlDir </> "DOC" ++ "')"
   , "testall    : test all packages of the central repository"
   , "showgraph  : visualize all package dependencies as dot graph"
   ]
@@ -96,7 +97,7 @@ getAllPackageSpecs compat = do
 ------------------------------------------------------------------------------
 -- Generate web pages of the central repository
 writeAllPackagesAsHTML :: IO ()
-writeAllPackagesAsHTML = do
+writeAllPackagesAsHTML = inDirectory cpmHtmlDir $ do
   (config,repopkgs) <- getAllPackageSpecs False
   putStrLn "Reading all package specifications..."
   allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config) repopkgs
@@ -194,7 +195,7 @@ generateDocsOfAllPackages = do
                       , "cypm","checkout", pname, pversion, "&&"
                       , "cd", pname, "&&"
                       , "cypm", "install", "--noexec", "&&"
-                      , "cypm", "doc", "--docdir", cpmHtmlDir, "&&"
+                      , "cypm", "doc", "--docdir", cpmHtmlDir </> "DOC", "&&"
                       , "cd ..", "&&"
                       , "rm -rf", pname
                       ]
