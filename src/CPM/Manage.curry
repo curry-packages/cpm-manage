@@ -187,7 +187,7 @@ generateDocsOfAllPackages = do
   mapIO_ genDocOfPackage allpkgs
   system "rm -f allpkgs.csv" >> done
  where
-  genDocOfPackage pkg = do
+  genDocOfPackage pkg = inTempDir $ do
     let pname = name pkg
         pversion = showVersion (version pkg)
     putStrLn $ unlines [dline, "Documenting: " ++ pname, dline]
