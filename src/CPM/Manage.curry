@@ -31,7 +31,7 @@ import ShowDotGraph
 
 --- Base URL of CPM documentations
 cpmBaseURL :: String
-cpmBaseURL = "http://www-ps.informatik.uni-kiel.de/~mh/curry/cpm/DOC/"
+cpmBaseURL = "http://www.informatik.uni-kiel.de/~curry/cpm/DOC/"
 
 --- Directory of CPM documentations
 cpmHtmlDir :: String
@@ -195,7 +195,8 @@ generateDocsOfAllPackages = do
                       , "cypm","checkout", pname, pversion, "&&"
                       , "cd", pname, "&&"
                       , "cypm", "install", "--noexec", "&&"
-                      , "cypm", "doc", "--docdir", cpmHtmlDir </> "DOC", "&&"
+                      , "cypm", "doc", "--docdir", cpmHtmlDir </> "DOC"
+                              , "--url", cpmBaseURL, "&&"
                       , "cd ..", "&&"
                       , "rm -rf", pname
                       ]
