@@ -22,8 +22,9 @@ import CPM.ErrorLogger
 import CPM.FileUtil    ( inDirectory, inTempDir, recreateDirectory )
 import CPM.Package
 import CPM.PackageCopy ( renderPackageInfo )
-import CPM.Repository  ( allPackages, listPackages, readRepository
+import CPM.Repository  ( allPackages, listPackages
                        , readPackageFromRepository, cleanRepositoryCache )
+import CPM.RepositoryCache.Select ( getBaseRepository )
 import CPM.Resolution  ( isCompatibleToCompiler )
 
 import HTML.Base
@@ -78,8 +79,8 @@ getAllPackageSpecs compat = do
     Left err -> do putStrLn $ "Error reading .cpmrc settings: " ++ err
                    exitWith 1
     Right c' -> return c'
-  putStrLn "Reading repository..."
-  repo <- readRepository config True
+  putStrLn "Reading base repository..."
+  repo <- getBaseRepository config
   let allpkgs = sortBy (\ps1 ps2 -> name ps1 <= name ps2)
                        (concatMap (filterCompatPkgs config)
                                   (listPackages repo))
@@ -333,7 +334,7 @@ showAllPackageDependencies = do
       putStrLn $ "Error reading .cpmrc file: " ++ err
       exitWith 1
     Right c' -> return c'
-  pkgs <- readRepository config False >>= return . allPackages
+  pkgs <- getBaseRepository config >>= return . allPackages
   let alldeps = map (\p -> (name p, map (\ (Dependency p' _) -> p')
                                         (dependencies p)))
                     pkgs
