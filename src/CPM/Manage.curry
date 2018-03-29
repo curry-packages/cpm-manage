@@ -8,13 +8,15 @@
 module CPM.Manage ( main )
   where
 
-import Directory ( copyFile, doesFileExist, doesDirectoryExist
-                 , createDirectoryIfMissing, getCurrentDirectory )
+import Directory ( getCurrentDirectory )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd )
-import List      ( findIndex, nub, replace, sortBy, sum, union )
+import List      ( nub, sortBy, sum )
 import System    ( getArgs, exitWith, system )
 import Time      ( getLocalTime, toDayString )
+
+import HTML.Base
+import ShowDotGraph
 
 import CPM.Config      ( Config, repositoryDir, packageInstallDir
                        , readConfigurationWith )
@@ -23,14 +25,13 @@ import CPM.FileUtil    ( inDirectory, inTempDir, recreateDirectory
                        , removeDirectoryComplete )
 import CPM.Package
 import CPM.PackageCopy ( renderPackageInfo )
-import CPM.Repository  ( allPackages, listPackages
-                       , readPackageFromRepository, cleanRepositoryCache )
+import CPM.Repository  ( allPackages, listPackages, readPackageFromRepository )
 import CPM.Repository.Update ( addPackageToRepository, updateRepository )
 import CPM.Repository.Select ( getBaseRepository )
 import CPM.Resolution  ( isCompatibleToCompiler )
 
-import HTML.Base
-import ShowDotGraph
+------------------------------------------------------------------------------
+-- Some global settings:
 
 --- Base URL of CPM documentations
 cpmBaseURL :: String
@@ -40,6 +41,7 @@ cpmBaseURL = "http://www.informatik.uni-kiel.de/~curry/cpm/DOC/"
 cpmHtmlDir :: String
 cpmHtmlDir = "/net/medoc/home/mh/public_html/curry/cpm"
 
+------------------------------------------------------------------------------
 main :: IO ()
 main = do
   args <- getArgs
