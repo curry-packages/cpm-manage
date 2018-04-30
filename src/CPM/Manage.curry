@@ -16,15 +16,15 @@ import List      ( findIndex, nub, replace, sortBy, sum, union )
 import System    ( getArgs, exitWith, system )
 import Time      ( getLocalTime, toDayString )
 
-import CPM.Config      ( repositoryDir, packageInstallDir
-                       , readConfigurationWith )
+import CPM.Config          ( repositoryDir, packageInstallDir
+                           , readConfigurationWith )
 import CPM.ErrorLogger
-import CPM.FileUtil    ( inTempDir, recreateDirectory )
+import CPM.FileUtil        ( inTempDir, recreateDirectory )
 import CPM.Package
-import CPM.PackageCopy ( renderPackageInfo )
-import CPM.Repository  ( allPackages, listPackages, readRepository
-                       , updateRepositoryCache )
-import CPM.Resolution  ( isCompatibleToCompiler )
+import CPM.Package.Helpers ( renderPackageInfo )
+import CPM.Repository      ( allPackages, listPackages, readRepository
+                           , updateRepositoryCache )
+import CPM.Resolution      ( isCompatibleToCompiler )
 
 import HTML.Base
 import ShowDotGraph
