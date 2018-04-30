@@ -18,13 +18,13 @@ import Time      ( getLocalTime, toDayString )
 import HTML.Base
 import ShowDotGraph
 
-import CPM.Config      ( Config, repositoryDir, packageInstallDir
-                       , readConfigurationWith )
+import CPM.Config          ( Config, repositoryDir, packageInstallDir
+                           , readConfigurationWith )
 import CPM.ErrorLogger
-import CPM.FileUtil    ( inDirectory, inTempDir, recreateDirectory
-                       , removeDirectoryComplete )
+import CPM.FileUtil        ( inDirectory, inTempDir, recreateDirectory
+                           , removeDirectoryComplete )
 import CPM.Package
-import CPM.PackageCopy ( renderPackageInfo )
+import CPM.Package.Helpers ( renderPackageInfo )
 import CPM.Repository  ( allPackages, listPackages, readPackageFromRepository )
 import CPM.Repository.Update ( addPackageToRepository, updateRepository )
 import CPM.Repository.Select ( getBaseRepository )
