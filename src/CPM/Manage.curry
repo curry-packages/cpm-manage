@@ -29,14 +29,18 @@ import CPM.Resolution      ( isCompatibleToCompiler )
 import HTML.Base
 import ShowDotGraph
 
+------------------------------------------------------------------------------
+-- Some global settings:
+
 --- Base URL of CPM documentations
 cpmBaseURL :: String
-cpmBaseURL = "http://www-ps.informatik.uni-kiel.de/~mh/curry/cpm/"
+cpmBaseURL = "http://www.informatik.uni-kiel.de/~curry/cpm/DOC/"
 
 --- Directory of CPM documentations
 cpmHtmlDir :: String
 cpmHtmlDir = "/net/medoc/home/mh/public_html/curry/cpm"
 
+------------------------------------------------------------------------------
 main :: IO ()
 main = do
   args <- getArgs
@@ -58,9 +62,10 @@ helpText = unlines $
   , "add        : add this package version to the central repository"
   , "update     : tag git repository of local package with current version"
   , "             and update central index with current package specification"
-  , "genhtml    : generate HTML pages of central repository (in local files)"
+  , "genhtml    : generate HTML pages of central repository (in directory"
+  , "             '" ++ cpmHtmlDir ++ "')"
   , "gendocs    : generate HTML documentations of all packages (in directory"
-  , "             " ++ cpmHtmlDir ++ ")"
+  , "             '" ++ cpmHtmlDir </> "DOC" ++ "')"
   , "testall    : test all packages of the central repository"
   , "showgraph  : visualize all package dependencies as dot graph"
   ]
@@ -133,7 +138,7 @@ apiRef :: Package -> Bool -> [HtmlExp]
 apiRef pkg small =
  let title       = if small then "API" else "API documentation"
      addArrow he = if small then he else addClass he "arrow"
- in [addArrow $ href (cpmBaseURL ++ "DOC_" ++ name pkg) [htxt title]]
+ in [addArrow $ href (cpmBaseURL ++ packageId pkg) [htxt title]]
 
 --- Manual reference of a package:
 manualRef :: Package -> Bool -> [HtmlExp]
@@ -143,7 +148,7 @@ manualRef pkg small =
  in case documentation pkg of
       Nothing -> []
       Just (PackageDocumentation _ docmain _) ->
-        [addArrow $ href (cpmBaseURL ++ "DOC_" ++ name pkg </>
+        [addArrow $ href (cpmBaseURL ++ packageId pkg </>
                           replaceExtension docmain ".pdf")
                          [htxt title]]
 
@@ -187,12 +192,12 @@ generateDocsOfAllPackages = do
     let pname = name pkg
         pversion = showVersion (version pkg)
     putStrLn $ unlines [dline, "Documenting: " ++ pname, dline]
-    let docdir = cpmHtmlDir </> "DOC_" ++ pname
-        cmd = unwords [ "rm -rf", pname, "&&"
+    let cmd = unwords [ "rm -rf", pname, "&&"
                       , "cypm","checkout", pname, pversion, "&&"
                       , "cd", pname, "&&"
                       , "cypm", "install", "--noexec", "&&"
-                      , "cypm", "doc", "--docdir", docdir, "&&"
+                      , "cypm", "doc", "--docdir", cpmHtmlDir </> "DOC"
+                              , "--url", cpmBaseURL, "&&"
                       , "cd ..", "&&"
                       , "rm -rf", pname
                       ]
