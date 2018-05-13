@@ -8,26 +8,27 @@
 module CPM.Manage ( main )
   where
 
-import Directory ( copyFile, doesFileExist, doesDirectoryExist
-                 , createDirectoryIfMissing, getCurrentDirectory )
+import Directory ( getCurrentDirectory )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd )
-import List      ( findIndex, nub, replace, sortBy, sum, union )
+import List      ( nub, sortBy, sum )
 import System    ( getArgs, exitWith, system )
 import Time      ( getLocalTime, toDayString )
 
-import CPM.Config          ( repositoryDir, packageInstallDir
-                           , readConfigurationWith )
-import CPM.ErrorLogger
-import CPM.FileUtil        ( inTempDir, recreateDirectory )
-import CPM.Package
-import CPM.Package.Helpers ( renderPackageInfo )
-import CPM.Repository      ( allPackages, listPackages, readRepository
-                           , updateRepositoryCache )
-import CPM.Resolution      ( isCompatibleToCompiler )
-
 import HTML.Base
 import ShowDotGraph
+
+import CPM.Config          ( Config, repositoryDir, packageInstallDir
+                           , readConfigurationWith )
+import CPM.ErrorLogger
+import CPM.FileUtil        ( inDirectory, inTempDir, recreateDirectory
+                           , removeDirectoryComplete )
+import CPM.Package
+import CPM.Package.Helpers ( renderPackageInfo )
+import CPM.Repository  ( allPackages, listPackages, readPackageFromRepository )
+import CPM.Repository.Update ( addPackageToRepository, updateRepository )
+import CPM.Repository.Select ( getBaseRepository )
+import CPM.Resolution  ( isCompatibleToCompiler )
 
 ------------------------------------------------------------------------------
 -- Some global settings:
@@ -75,18 +76,15 @@ helpText = unlines $
 --- to the current compiler. If there is no compatible version and the
 --- first argument is False, get the newest version, otherwise the package
 --- is ignored.
-getAllPackageSpecs :: Bool -> IO [Package]
+getAllPackageSpecs :: Bool -> IO (Config,[Package])
 getAllPackageSpecs compat = do
-  config <- readConfigurationWith [] >>= \c ->
-   case c of
-    Left err -> do putStrLn $ "Error reading .cpmrc settings: " ++ err
-                   exitWith 1
-    Right c' -> return c'
-  repo <- readRepository config
+  config <- readConfiguration
+  putStrLn "Reading base repository..."
+  repo <- getBaseRepository config
   let allpkgs = sortBy (\ps1 ps2 -> name ps1 <= name ps2)
                        (concatMap (filterCompatPkgs config)
                                   (listPackages repo))
-  return allpkgs
+  return (config,allpkgs)
  where
   -- Returns the first package compatible to the current compiler.
   -- If compat is False and there are no compatible packages,
@@ -100,8 +98,10 @@ getAllPackageSpecs compat = do
 ------------------------------------------------------------------------------
 -- Generate web pages of the central repository
 writeAllPackagesAsHTML :: IO ()
-writeAllPackagesAsHTML = do
-  allpkgs  <- getAllPackageSpecs False
+writeAllPackagesAsHTML = inDirectory cpmHtmlDir $ do
+  (config,repopkgs) <- getAllPackageSpecs False
+  putStrLn "Reading all package specifications..."
+  allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config) repopkgs
   let indexfile = "index.html"
   ltime <- getLocalTime
   putStrLn $ "Writing '" ++ indexfile ++ "'..."
@@ -119,7 +119,7 @@ writeAllPackagesAsHTML = do
     let pname    = name pkg
         htmlfile = pname ++ ".html"
     putStrLn $ "Writing '" ++ htmlfile ++ "'..."
-    let pkginfo = renderPackageInfo True True Nothing pkg
+    let pkginfo = renderPackageInfo True True True pkg
         manref  = manualRef pkg False
     writeReadableFile htmlfile $ showHtmlPage $
       cpmTitledHtmlPage ("Curry Package '"++pname++"'") $
@@ -184,7 +184,7 @@ cpmTitledHtmlPage title hexps = cpmHtmlPage title (h1 [htxt title] : hexps)
 -- Generate HTML documentation of all packages in the central repository
 generateDocsOfAllPackages :: IO ()
 generateDocsOfAllPackages = do
-  allpkgs <- getAllPackageSpecs True
+  (_,allpkgs) <- getAllPackageSpecs True
   mapIO_ genDocOfPackage allpkgs
   system "rm -f allpkgs.csv" >> done
  where
@@ -208,7 +208,7 @@ generateDocsOfAllPackages = do
 -- Run `cypm test` on all packages of the central repository
 testAllPackages :: IO ()
 testAllPackages = do
-  allpkgs <- getAllPackageSpecs True
+  (_,allpkgs) <- getAllPackageSpecs True
   results <- mapIO checkoutAndTestPackage allpkgs
   if sum (map fst results) == 0
     then putStrLn $ show (length allpkgs) ++ " PACKAGES SUCCESSFULLY TESTED!"
@@ -221,35 +221,24 @@ dline :: String
 dline = take 78 (repeat '=')
 
 ------------------------------------------------------------------------------
--- Add a new package where the name of the package description file
--- is given as a parameter.
+-- Add a new package (already committed and pushed into its git repo)
+-- where the package specification is stored in the current directory.
 addNewPackage :: IO ()
 addNewPackage = do
-  config <- readConfigurationWith [] >>= \c -> case c of
-    Left err -> do
-      putStrLn $ "Error reading .cpmrc file: " ++ err
-      exitWith 1
-    Right c' -> return c'
+  config <- readConfiguration
   pkg <- fromErrorLogger (loadPackageSpec ".")
   setTagInGit pkg
-  let pkgName          = name pkg
-      pkgVersion       = version pkg
-      pkgIndexDir      = pkgName </> showVersion pkgVersion
+  let pkgIndexDir      = name pkg </> showVersion (version pkg)
       pkgRepositoryDir = repositoryDir config </> pkgIndexDir
-  expkgdir <- doesDirectoryExist pkgRepositoryDir
-  when expkgdir (error $ "Package repository directory '" ++ pkgRepositoryDir ++
-                         "' already exists!")
-  putStrLn $ "Create directory: " ++ pkgRepositoryDir
-  createDirectoryIfMissing True pkgRepositoryDir
-  copyFile packageSpecFile (pkgRepositoryDir </> packageSpecFile)
-  updateRepositoryCache config
+      pkgInstallDir    = packageInstallDir config </> packageId pkg
+  fromErrorLogger $ addPackageToRepository config "." False False
   putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
   (ecode,_) <- checkoutAndTestPackage pkg
   when (ecode>0) $ do
-    system $ "rm -rf " ++ pkgRepositoryDir
-    system $ "rm -rf " ++ packageInstallDir config </> packageId pkg
-    updateRepositoryCache config
-    putStrLn "Unable to checkout, package deleted in repository directory!"
+    removeDirectoryComplete pkgRepositoryDir
+    removeDirectoryComplete pkgInstallDir
+    putStrLn "Checkout/test failure, package deleted in repository directory!"
+    updateRepository config
     exitWith 1
   putStrLn $ "\nEverything looks fine..."
   putStrLn $ "\nTo publish the new repository directory, run command:\n"
@@ -305,36 +294,24 @@ setTagInGit pkg = do
 -- and copy the package spec file to the cpm index
 updatePackage :: IO ()
 updatePackage = do
-  config <- readConfigurationWith [] >>= \c -> case c of
-    Left err -> do putStrLn $ "Error reading .cpmrc file: " ++ err
-                   exitWith 1
-    Right c' -> return c'
+  config <- readConfiguration
   pkg <- fromErrorLogger (loadPackageSpec ".")
-  let pkgIndexDir      = name pkg </> showVersion (version pkg)
-      pkgRepositoryDir = repositoryDir config </> pkgIndexDir
-      pkgInstallDir    = packageInstallDir config </> packageId pkg
+  let pkgInstallDir    = packageInstallDir config </> packageId pkg
   setTagInGit pkg
   putStrLn $ "Deleting old repo copy '" ++ pkgInstallDir ++ "'..."
-  system $ "rm -rf " ++ pkgInstallDir
+  removeDirectoryComplete pkgInstallDir
   (ecode,_) <- checkoutAndTestPackage pkg
-  when (ecode > 0) $ do putStrLn $ "ERROR in package, CPM index not updated!"
+  when (ecode > 0) $ do removeDirectoryComplete pkgInstallDir
+                        putStrLn $ "ERROR in package, CPM index not updated!"
                         exitWith 1
-  let cmd = unwords
-              ["cp -f", packageSpecFile, pkgRepositoryDir </> packageSpecFile]
-  putStrLn $ "Execute: " ++ cmd
-  system cmd
-  updateRepositoryCache config
+  fromErrorLogger $ addPackageToRepository config "." True False
 
 ------------------------------------------------------------------------------
 -- Show package dependencies as graph
 showAllPackageDependencies :: IO ()
 showAllPackageDependencies = do
-  config <- readConfigurationWith [] >>= \c -> case c of
-    Left err -> do
-      putStrLn $ "Error reading .cpmrc file: " ++ err
-      exitWith 1
-    Right c' -> return c'
-  pkgs <- readRepository config >>= return . allPackages
+  config <- readConfiguration
+  pkgs <- getBaseRepository config >>= return . allPackages
   let alldeps = map (\p -> (name p, map (\ (Dependency p' _) -> p')
                                         (dependencies p)))
                     pkgs
@@ -348,6 +325,16 @@ depsToGraph cpmdeps =
         (map (\s -> Node s []) (nub (map fst cpmdeps ++ concatMap snd cpmdeps)))
         (map (\ (s,t) -> Edge s t [])
              (nub (concatMap (\ (p,ds) -> map (\d -> (p,d)) ds) cpmdeps)))
+
+------------------------------------------------------------------------------
+--- Reads to the .cpmrc file from the user's home directory and return
+--- the configuration. Terminate in case of some errors.
+readConfiguration :: IO Config
+readConfiguration =
+  readConfigurationWith [] >>= \c -> case c of
+    Left err -> do putStrLn $ "Error reading .cpmrc file: " ++ err
+                   exitWith 1
+    Right c' -> return c'
 
 ------------------------------------------------------------------------------
 -- The name of the package specification file.
