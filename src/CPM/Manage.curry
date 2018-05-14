@@ -28,7 +28,7 @@ import CPM.Package.Helpers ( renderPackageInfo )
 import CPM.Repository  ( allPackages, listPackages, readPackageFromRepository )
 import CPM.Repository.Update ( addPackageToRepository, updateRepository )
 import CPM.Repository.Select ( getBaseRepository )
-import CPM.Resolution  ( isCompatibleToCompiler )
+import CPM.Resolution        ( isCompatibleToCompiler )
 
 ------------------------------------------------------------------------------
 -- Some global settings:
@@ -72,19 +72,25 @@ helpText = unlines $
   ]
 
 ------------------------------------------------------------------------------
---- Get all packages. For each package, get the newest version compatible
+--- Get all packages from the repository.
+--- For each package, get the newest version compatible
 --- to the current compiler. If there is no compatible version and the
 --- first argument is False, get the newest version, otherwise the package
 --- is ignored.
-getAllPackageSpecs :: Bool -> IO (Config,[Package])
+--- In addition to this package list (third component),
+--- the first component contains the current configuration and the
+--- second component the list of all packages grouped by versions
+--- (independent of the compiler compatbility).
+getAllPackageSpecs :: Bool -> IO (Config,[[Package]],[Package])
 getAllPackageSpecs compat = do
   config <- readConfiguration
   putStrLn "Reading base repository..."
   repo <- getBaseRepository config
-  let allpkgs = sortBy (\ps1 ps2 -> name ps1 <= name ps2)
-                       (concatMap (filterCompatPkgs config)
-                                  (listPackages repo))
-  return (config,allpkgs)
+  let allpkgversions = listPackages repo
+      allcompatpkgs  = sortBy (\ps1 ps2 -> name ps1 <= name ps2)
+                              (concatMap (filterCompatPkgs config)
+                                         allpkgversions)
+  return (config,allpkgversions,allcompatpkgs)
  where
   -- Returns the first package compatible to the current compiler.
   -- If compat is False and there are no compatible packages,
@@ -99,9 +105,10 @@ getAllPackageSpecs compat = do
 -- Generate web pages of the central repository
 writeAllPackagesAsHTML :: IO ()
 writeAllPackagesAsHTML = inDirectory cpmHtmlDir $ do
-  (config,repopkgs) <- getAllPackageSpecs False
+  (config,allpkgversions,newestpkgs) <- getAllPackageSpecs False
   putStrLn "Reading all package specifications..."
-  allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config) repopkgs
+  allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
+                   newestpkgs
   let indexfile = "index.html"
   ltime <- getLocalTime
   putStrLn $ "Writing '" ++ indexfile ++ "'..."
@@ -111,10 +118,16 @@ writeAllPackagesAsHTML = inDirectory cpmHtmlDir $ do
            href "http://www.curry-language.org/tools/cpm" [htxt "CPM"]
              `addAttr` ("target","_blank"),
            htxt $ " Repository (" ++ toDayString ltime ++ ")"],
-       packageInfosAsHtmlTable allpkgs]
+       packageInfosAsHtmlTable allpkgs] ++
+       pkgStatistics allpkgversions newestpkgs
   mapIO_ writePackageAsHTML allpkgs
   system "rm -f allpkgs.csv" >> done
  where
+  pkgStatistics allpkgversions newestpkgs =
+    [h4 [htxt "Statistics:"],
+     par [htxt $ show (length newestpkgs) ++ " packages", breakline,
+          htxt $ show (length (concat allpkgversions)) ++ " package versions"]]
+         
   writePackageAsHTML pkg = do
     let pname    = name pkg
         htmlfile = pname ++ ".html"
@@ -184,7 +197,7 @@ cpmTitledHtmlPage title hexps = cpmHtmlPage title (h1 [htxt title] : hexps)
 -- Generate HTML documentation of all packages in the central repository
 generateDocsOfAllPackages :: IO ()
 generateDocsOfAllPackages = do
-  (_,allpkgs) <- getAllPackageSpecs True
+  (_,_,allpkgs) <- getAllPackageSpecs True
   mapIO_ genDocOfPackage allpkgs
   system "rm -f allpkgs.csv" >> done
  where
@@ -208,7 +221,7 @@ generateDocsOfAllPackages = do
 -- Run `cypm test` on all packages of the central repository
 testAllPackages :: IO ()
 testAllPackages = do
-  (_,allpkgs) <- getAllPackageSpecs True
+  (_,_,allpkgs) <- getAllPackageSpecs True
   results <- mapIO checkoutAndTestPackage allpkgs
   if sum (map fst results) == 0
     then putStrLn $ show (length allpkgs) ++ " PACKAGES SUCCESSFULLY TESTED!"
