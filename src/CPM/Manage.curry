@@ -24,11 +24,13 @@ import CPM.ErrorLogger
 import CPM.FileUtil        ( inDirectory, inTempDir, recreateDirectory
                            , removeDirectoryComplete )
 import CPM.Package
-import CPM.Package.Helpers ( renderPackageInfo )
-import CPM.Repository  ( allPackages, listPackages, readPackageFromRepository )
-import CPM.Repository.Update ( addPackageToRepository, updateRepository )
-import CPM.Repository.Select ( getBaseRepository )
-import CPM.Resolution        ( isCompatibleToCompiler )
+import CPM.PackageCache.Global ( acquireAndInstallPackage, checkoutPackage )
+import CPM.Package.Helpers     ( renderPackageInfo )
+import CPM.Repository          ( allPackages, listPackages
+                               , readPackageFromRepository )
+import CPM.Repository.Update   ( addPackageToRepository, updateRepository )
+import CPM.Repository.Select   ( getBaseRepository )
+import CPM.Resolution          ( isCompatibleToCompiler )
 
 ------------------------------------------------------------------------------
 -- Some global settings:
@@ -48,6 +50,7 @@ main = do
   case args of
     ["genhtml"]     -> writeAllPackagesAsHTML
     ["gendocs"]     -> generateDocsOfAllPackages
+    ["gentar"]      -> genTarOfAllPackages
     ["testall"]     -> testAllPackages
     ["add"]         -> addNewPackage
     ["update"]      -> updatePackage
@@ -67,6 +70,7 @@ helpText = unlines $
   , "             '" ++ cpmHtmlDir ++ "')"
   , "gendocs    : generate HTML documentations of all packages (in directory"
   , "             '" ++ cpmHtmlDir </> "DOC" ++ "')"
+  , "gentar     : generate tar.gz files of all packages (in current directory)"
   , "testall    : test all packages of the central repository"
   , "showgraph  : visualize all package dependencies as dot graph"
   ]
@@ -121,7 +125,6 @@ writeAllPackagesAsHTML = inDirectory cpmHtmlDir $ do
        packageInfosAsHtmlTable allpkgs] ++
        pkgStatistics allpkgversions newestpkgs
   mapIO_ writePackageAsHTML allpkgs
-  system "rm -f allpkgs.csv" >> done
  where
   pkgStatistics allpkgversions newestpkgs =
     [h4 [htxt "Statistics:"],
@@ -199,7 +202,6 @@ generateDocsOfAllPackages :: IO ()
 generateDocsOfAllPackages = do
   (_,_,allpkgs) <- getAllPackageSpecs True
   mapIO_ genDocOfPackage allpkgs
-  system "rm -f allpkgs.csv" >> done
  where
   genDocOfPackage pkg = inTempDir $ do
     let pname = name pkg
@@ -228,10 +230,37 @@ testAllPackages = do
     else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
                        unwords (map snd (filter ((> 0) . fst) results))
             exitWith 1
-  system "rm -f allpkgs.csv" >> done
 
 dline :: String
 dline = take 78 (repeat '=')
+
+------------------------------------------------------------------------------
+-- Generate tar.gz files of all packages (in the current directory)
+genTarOfAllPackages :: IO ()
+genTarOfAllPackages = do
+  putStrLn "Generating tar.gz of all package versions..."
+  (cfg,allpkgversions,_) <- getAllPackageSpecs False
+  allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository cfg)
+                   (sortBy (\ps1 ps2 -> packageId ps1 <= packageId ps2)
+                           (concat allpkgversions))
+  mapIO_ (writePackageAsTar cfg) allpkgs --(take 3 allpkgs)
+ where
+  writePackageAsTar cfg pkg = do
+    let pkgname    = name pkg
+        pkgid      = packageId pkg
+    putStrLn $ "Checking out '" ++ pkgid ++ "'..."
+    let checkoutdir = pkgname
+    system $ unwords [ "rm -rf", checkoutdir ]
+    fromErrorLogger
+      (acquireAndInstallPackage cfg pkg |> checkoutPackage cfg pkg)
+    let cmd = unwords [ "mv", checkoutdir, pkgid, "&&"
+                      , "tar", "cvzf", pkgid ++ ".tar.gz", pkgid, "&&"
+                      , "rm", "-rf", pkgid
+                      ]
+    putStrLn $ "...with command:\n" ++ cmd
+    ecode <- system cmd
+    when (ecode>0) $ error $ "ERROR OCCURED IN PACKAGE '" ++ pkgid ++ "'!"
+
 
 ------------------------------------------------------------------------------
 -- Add a new package (already committed and pushed into its git repo)
