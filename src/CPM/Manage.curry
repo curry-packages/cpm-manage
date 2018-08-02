@@ -8,12 +8,13 @@
 module CPM.Manage ( main )
   where
 
-import Directory ( getCurrentDirectory )
-import FilePath  ( (</>), replaceExtension )
-import IOExts    ( evalCmd )
-import List      ( nub, sortBy, sum )
-import System    ( getArgs, exitWith, system )
-import Time      ( getLocalTime, toDayString )
+import System.Directory   ( getCurrentDirectory )
+import System.FilePath    ( (</>), replaceExtension )
+import IOExts             ( evalCmd )
+import Data.List          ( nub, sortBy, sum )
+import System.Process     ( exitWith, system )
+import System.Environment ( getArgs )
+import Data.Time          ( getLocalTime, toDayString )
 
 import HTML.Base
 import ShowDotGraph
@@ -130,7 +131,7 @@ writeAllPackagesAsHTML = inDirectory cpmHtmlDir $ do
     [h4 [htxt "Statistics:"],
      par [htxt $ show (length newestpkgs) ++ " packages", breakline,
           htxt $ show (length (concat allpkgversions)) ++ " package versions"]]
-         
+
   writePackageAsHTML pkg = do
     let pname    = name pkg
         htmlfile = pname ++ ".html"
