@@ -8,10 +8,10 @@
 module CPM.Manage ( main )
   where
 
-import Directory ( getCurrentDirectory )
+import Directory ( doesDirectoryExist, getCurrentDirectory )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd )
-import List      ( nub, sortBy, sum )
+import List      ( groupBy, nub, sortBy, sum )
 import System    ( getArgs, exitWith, system )
 import Time      ( getLocalTime, toDayString )
 
@@ -21,7 +21,8 @@ import ShowDotGraph
 import CPM.Config          ( Config, repositoryDir, packageInstallDir
                            , readConfigurationWith )
 import CPM.ErrorLogger
-import CPM.FileUtil        ( inDirectory, inTempDir, recreateDirectory
+import CPM.FileUtil        ( copyDirectory, inDirectory, inTempDir
+                           , recreateDirectory
                            , removeDirectoryComplete )
 import CPM.Package
 import CPM.PackageCache.Global ( acquireAndInstallPackage, checkoutPackage )
@@ -43,6 +44,14 @@ cpmBaseURL = "http://www.informatik.uni-kiel.de/~curry/cpm/DOC/"
 cpmHtmlDir :: String
 cpmHtmlDir = "/net/medoc/home/mh/public_html/curry/cpm"
 
+--- Directory containing all package documentations
+packageDocDir :: String
+packageDocDir = cpmHtmlDir </> "DOC"
+
+--- Directory with documentations for Currygle
+currygleDocDir :: String
+currygleDocDir = "currygledocs"
+
 ------------------------------------------------------------------------------
 main :: IO ()
 main = do
@@ -55,6 +64,7 @@ main = do
     ["add"]         -> addNewPackage
     ["update"]      -> updatePackage
     ["showgraph"]   -> showAllPackageDependencies
+    ["copydocs"]    -> copyPackageDocumentations
     ["--help"]      -> putStrLn helpText
     ["-h"]          -> putStrLn helpText
     _               -> do putStrLn $ "Wrong arguments!\n\n" ++ helpText
@@ -63,16 +73,19 @@ main = do
 helpText :: String
 helpText = unlines $
   [ "Options:", ""
-  , "add        : add this package version to the central repository"
-  , "update     : tag git repository of local package with current version"
-  , "             and update central index with current package specification"
-  , "genhtml    : generate HTML pages of central repository (in directory"
-  , "             '" ++ cpmHtmlDir ++ "')"
-  , "gendocs    : generate HTML documentations of all packages (in directory"
-  , "             '" ++ cpmHtmlDir </> "DOC" ++ "')"
-  , "gentar     : generate tar.gz files of all packages (in current directory)"
-  , "testall    : test all packages of the central repository"
-  , "showgraph  : visualize all package dependencies as dot graph"
+  , "add       : add this package version to the central repository"
+  , "update    : tag git repository of local package with current version"
+  , "            and update central index with current package specification"
+  , "genhtml   : generate HTML pages of central repository (in directory"
+  , "            '" ++ cpmHtmlDir ++ "')"
+  , "gendocs   : generate HTML documentations of all packages (in directory"
+  , "            '" ++ cpmHtmlDir </> "DOC" ++ "')"
+  , "gentar    : generate tar.gz files of all packages (in current directory)"
+  , "testall   : test all packages of the central repository"
+  , "showgraph : visualize all package dependencies as dot graph"
+  , "copydocs  : copy latest package documentations"
+  , "            from '" ++ packageDocDir ++ "'"
+  , "            to '" ++ currygleDocDir ++ "'"
   ]
 
 ------------------------------------------------------------------------------
@@ -367,6 +380,30 @@ depsToGraph cpmdeps =
         (map (\s -> Node s []) (nub (map fst cpmdeps ++ concatMap snd cpmdeps)))
         (map (\ (s,t) -> Edge s t [])
              (nub (concatMap (\ (p,ds) -> map (\d -> (p,d)) ds) cpmdeps)))
+
+------------------------------------------------------------------------------
+-- Copy all package documentation into a directory
+-- which can be used by Currygle to generate the documentation index
+copyPackageDocumentations :: IO ()
+copyPackageDocumentations = do
+  config <- readConfiguration
+  allpkgs <- getBaseRepository config >>= return . allPackages
+  let pkgs   = map newestVersion (groupBy (\a b -> name a == name b) allpkgs)
+      pkgids = sortBy (<=) $ map packageId pkgs
+  --putStrLn $ unlines $ pkgids
+  putStrLn $ "Number of package documentations: " ++ show (length pkgs)
+  recreateDirectory currygleDocDir
+  mapIO_ copyPackageDoc pkgids
+ where
+  newestVersion ps = head (sortBy (\a b -> version a `vgt` version b) ps)
+
+  copyPackageDoc pid = do
+    let pdir = packageDocDir </> pid
+    exdoc <- doesDirectoryExist pdir
+    if exdoc
+      then do putStrLn $ "Copying documentation of " ++ pid ++ "..."
+              copyDirectory pdir (currygleDocDir </> pid)
+      else putStrLn $ "Documentation " ++ pid ++ " does not exist!"
 
 ------------------------------------------------------------------------------
 --- Reads to the .cpmrc file from the user's home directory and return
