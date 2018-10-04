@@ -376,10 +376,10 @@ showAllPackageDependencies = do
 
 depsToGraph :: [(String, [String])] -> DotGraph
 depsToGraph cpmdeps =
-  Graph "CPM Dependencies"
-        (map (\s -> Node s []) (nub (map fst cpmdeps ++ concatMap snd cpmdeps)))
-        (map (\ (s,t) -> Edge s t [])
-             (nub (concatMap (\ (p,ds) -> map (\d -> (p,d)) ds) cpmdeps)))
+  dgraph "CPM Dependencies"
+    (map (\s -> Node s []) (nub (map fst cpmdeps ++ concatMap snd cpmdeps)))
+    (map (\ (s,t) -> Edge s t [])
+         (nub (concatMap (\ (p,ds) -> map (\d -> (p,d)) ds) cpmdeps)))
 
 ------------------------------------------------------------------------------
 -- Copy all package documentation into a directory
