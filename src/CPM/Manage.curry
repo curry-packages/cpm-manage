@@ -132,7 +132,7 @@ writeAllPackagesAsHTML = inDirectory cpmHtmlDir $ do
   writeReadableFile indexfile $ showHtmlPage $
     cpmHtmlPage "Curry Packages in the CPM Repository" $
       [h1 [htxt "Curry Packages in the ",
-           href "http://www.curry-language.org/tools/cpm" [htxt "CPM"]
+           href "http://www.curry-lang.org/tools/cpm" [htxt "CPM"]
              `addAttr` ("target","_blank"),
            htxt $ " Repository (" ++ toDayString ltime ++ ")"],
        packageInfosAsHtmlTable allpkgs] ++
