@@ -25,7 +25,8 @@ import CPM.FileUtil        ( copyDirectory, inDirectory, inTempDir
                            , recreateDirectory
                            , removeDirectoryComplete )
 import CPM.Package
-import CPM.PackageCache.Global ( acquireAndInstallPackage, checkoutPackage )
+import CPM.PackageCache.Global ( acquireAndInstallPackageFromSource
+                               , checkoutPackage )
 import CPM.Package.Helpers     ( renderPackageInfo )
 import CPM.Repository          ( allPackages, listPackages
                                , readPackageFromRepository )
@@ -256,19 +257,22 @@ genTarOfAllPackages = do
   allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository cfg)
                    (sortBy (\ps1 ps2 -> packageId ps1 <= packageId ps2)
                            (concat allpkgversions))
-  mapIO_ (writePackageAsTar cfg) allpkgs --(take 3 allpkgs)
+  curdir <- getCurrentDirectory
+  mapIO_ (writePackageAsTar cfg curdir) allpkgs --(take 3 allpkgs)
  where
-  writePackageAsTar cfg pkg = do
-    let pkgname    = name pkg
-        pkgid      = packageId pkg
+  writePackageAsTar cfg tfdir pkg = do
+    let pkgname  = name pkg
+        pkgid    = packageId pkg
+        tarfile  = tfdir </> pkgid ++ ".tar.gz"
     putStrLn $ "Checking out '" ++ pkgid ++ "'..."
     let checkoutdir = pkgname
     system $ unwords [ "rm -rf", checkoutdir ]
     fromErrorLogger
-      (acquireAndInstallPackage cfg pkg |> checkoutPackage cfg pkg)
-    let cmd = unwords [ "mv", checkoutdir, pkgid, "&&"
-                      , "tar", "cvzf", pkgid ++ ".tar.gz", pkgid, "&&"
-                      , "rm", "-rf", pkgid
+      (acquireAndInstallPackageFromSource cfg pkg |> checkoutPackage cfg pkg)
+    let cmd = unwords [ "cd", checkoutdir, "&&"
+                      , "tar", "cvzf", tarfile, ".", "&&"
+                      , "chmod", "644", tarfile, "&&"
+                      , "cd", "..", "&&", "rm", "-rf", checkoutdir
                       ]
     putStrLn $ "...with command:\n" ++ cmd
     ecode <- system cmd
