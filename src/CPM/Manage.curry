@@ -12,7 +12,7 @@ import Directory ( doesDirectoryExist, getCurrentDirectory )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd )
 import List      ( groupBy, nub, sortBy, sum )
-import System    ( getArgs, exitWith, system )
+import System    ( getArgs, getPID, exitWith, system )
 import Time      ( getLocalTime, toDayString )
 
 import HTML.Base
@@ -21,7 +21,7 @@ import ShowDotGraph
 import CPM.Config          ( Config, repositoryDir, packageInstallDir
                            , readConfigurationWith )
 import CPM.ErrorLogger
-import CPM.FileUtil        ( copyDirectory, inDirectory, inTempDir
+import CPM.FileUtil        ( copyDirectory, inDirectory, tempDir
                            , recreateDirectory
                            , removeDirectoryComplete )
 import CPM.Package
@@ -217,7 +217,7 @@ generateDocsOfAllPackages = do
   (_,_,allpkgs) <- getAllPackageSpecs True
   mapIO_ genDocOfPackage allpkgs
  where
-  genDocOfPackage pkg = inTempDir $ do
+  genDocOfPackage pkg = inEmptyTempDir $ do
     let pname = name pkg
         pversion = showVersion (version pkg)
     putStrLn $ unlines [dline, "Documenting: " ++ pname, dline]
@@ -310,30 +310,29 @@ addNewPackage = do
 -- install it (with a local bin dir), and run all tests.
 -- Returns the exit code of the package test command and the packaged id.
 checkoutAndTestPackage :: Package -> IO (Int,String)
-checkoutAndTestPackage pkg = do
-  -- create installation bin dir:
-  curdir <- inTempDir getCurrentDirectory
-  let bindir = curdir </> "pkgbin"
-  recreateDirectory bindir
+checkoutAndTestPackage pkg = inEmptyTempDir $ do
   let pkgname     = name pkg
       pkgversion  = version pkg
       pkgid       = packageId pkg
   putStrLn $ unlines [dline, "Testing package: " ++ pkgid, dline]
+  -- create installation bin dir:
+  curdir <- getCurrentDirectory
+  let bindir = curdir </> "pkgbin"
+  recreateDirectory bindir
   let checkoutdir = pkgname
       cmd = unwords
               [ "rm -rf", checkoutdir, "&&"
               , "cypm", "checkout", pkgname, showVersion pkgversion, "&&"
               , "cd", checkoutdir, "&&"
               -- install possible binaries in bindir:
-              , "cypm", "-d bin_install_path="++bindir, "install", "&&"
-              , "export PATH="++bindir++":$PATH", "&&"
+              , "cypm", "-d bin_install_path=" ++ bindir, "install", "&&"
+              , "export PATH=" ++ bindir ++ ":$PATH", "&&"
               , "cypm", "test", "&&"
-              , "cypm", "-d bin_install_path="++bindir, "uninstall"
+              , "cypm", "-d bin_install_path=" ++ bindir, "uninstall"
               ]
   putStrLn $ "...with command:\n" ++ cmd
-  ecode <- inTempDir $ system cmd
-  inTempDir (system $ unwords ["rm -rf ", checkoutdir, bindir])
-  when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '"++pkgid++ "'!"
+  ecode <- system cmd
+  when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '" ++ pkgid ++ "'!"
   return (ecode,pkgid)
 
 -- Set the package version as a tag in the git repository.
@@ -418,6 +417,18 @@ readConfiguration =
     Left err -> do putStrLn $ "Error reading .cpmrc file: " ++ err
                    exitWith 1
     Right c' -> return c'
+
+--- Executes an IO action with the current directory set to a new empty
+--- temporary directory. After the execution, the temporary directory
+--- is deleted.
+inEmptyTempDir :: IO a -> IO a
+inEmptyTempDir a = do
+  pid <- getPID
+  tmp <- tempDir >>= return . (++ show pid)
+  recreateDirectory tmp
+  r  <- inDirectory tmp a
+  removeDirectoryComplete tmp
+  return r
 
 ------------------------------------------------------------------------------
 -- The name of the package specification file.
