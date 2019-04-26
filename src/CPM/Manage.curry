@@ -8,7 +8,8 @@
 module CPM.Manage ( main )
   where
 
-import Directory ( doesDirectoryExist, getCurrentDirectory )
+import Directory ( createDirectoryIfMissing, doesDirectoryExist
+                 , getCurrentDirectory )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd )
 import List      ( groupBy, nub, sortBy, sum )
@@ -42,12 +43,16 @@ cpmBaseURL :: String
 cpmBaseURL = "http://www.informatik.uni-kiel.de/~curry/cpm/DOC/"
 
 --- Directory of CPM documentations
-cpmHtmlDir :: String
-cpmHtmlDir = "/net/medoc/home/mh/public_html/curry/cpm"
+cpmDocMainDir :: String
+cpmDocMainDir = "/net/medoc/home/mh/public_html/curry/cpm"
+
+--- Subdirectory of `cpmDocMainDir` containing HTML files for each package
+cpmHtmlSubDir :: String
+cpmHtmlSubDir = "HTML"
 
 --- Directory containing all package documentations
 packageDocDir :: String
-packageDocDir = cpmHtmlDir </> "DOC"
+packageDocDir = cpmDocMainDir </> "DOC"
 
 --- Directory with documentations for Currygle
 currygleDocDir :: String
@@ -78,9 +83,9 @@ helpText = unlines $
   , "update    : tag git repository of local package with current version"
   , "            and update central index with current package specification"
   , "genhtml   : generate HTML pages of central repository (in directory"
-  , "            '" ++ cpmHtmlDir ++ "')"
+  , "            '" ++ cpmDocMainDir ++ "')"
   , "gendocs   : generate HTML documentations of all packages (in directory"
-  , "            '" ++ cpmHtmlDir </> "DOC" ++ "')"
+  , "            '" ++ packageDocDir ++ "')"
   , "gentar    : generate tar.gz files of all packages (in current directory)"
   , "testall   : test all packages of the central repository"
   , "showgraph : visualize all package dependencies as dot graph"
@@ -122,7 +127,9 @@ getAllPackageSpecs compat = do
 ------------------------------------------------------------------------------
 -- Generate web pages of the central repository
 writeAllPackagesAsHTML :: IO ()
-writeAllPackagesAsHTML = inDirectory cpmHtmlDir $ do
+writeAllPackagesAsHTML = inDirectory cpmDocMainDir $ do
+  createDirectoryIfMissing True cpmHtmlSubDir
+  system ("chmod 755 " ++ cpmHtmlSubDir)
   (config,allpkgversions,newestpkgs) <- getAllPackageSpecs False
   putStrLn "Reading all package specifications..."
   allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
@@ -147,12 +154,13 @@ writeAllPackagesAsHTML = inDirectory cpmHtmlDir $ do
          
   writePackageAsHTML pkg = do
     let pname    = name pkg
-        htmlfile = pname ++ ".html"
+        pkgid    = packageId pkg
+        htmlfile = cpmHtmlSubDir </> pkgid ++ ".html"
     putStrLn $ "Writing '" ++ htmlfile ++ "'..."
     let pkginfo = renderPackageInfo True True True pkg
         manref  = manualRef pkg False
     writeReadableFile htmlfile $ showHtmlPage $
-      cpmTitledHtmlPage ("Curry Package '"++pname++"'") $
+      cpmTitledHtmlPage ("Curry Package '" ++ pname ++ "'") $
         [blockstyle "reference" $ apiRef pkg False] ++
         (if null manref then [] else [blockstyle "reference" manref]) ++
         [blockstyle "metadata"
@@ -190,7 +198,7 @@ packageInfosAsHtmlTable pkgs =
     map formatPkg pkgs
  where
   formatPkg pkg =
-    [ [href (name pkg ++ ".html") [htxt $ name pkg]]
+    [ [href (cpmHtmlSubDir </> packageId pkg ++ ".html") [htxt $ name pkg]]
     , apiRef pkg True
     , let manref = manualRef pkg True
       in if null manref then [nbsp] else manref
@@ -225,7 +233,7 @@ generateDocsOfAllPackages = do
                       , "cypm","checkout", pname, pversion, "&&"
                       , "cd", pname, "&&"
                       , "cypm", "install", "--noexec", "&&"
-                      , "cypm", "doc", "--docdir", cpmHtmlDir </> "DOC"
+                      , "cypm", "doc", "--docdir", cpmDocMainDir </> "DOC"
                               , "--url", cpmBaseURL, "&&"
                       , "cd ..", "&&"
                       , "rm -rf", pname
