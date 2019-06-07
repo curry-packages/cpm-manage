@@ -305,7 +305,7 @@ addNewPackage = do
     removeDirectoryComplete pkgRepositoryDir
     removeDirectoryComplete pkgInstallDir
     putStrLn "Checkout/test failure, package deleted in repository directory!"
-    updateRepository config True
+    updateRepository config True True False
     exitWith 1
   putStrLn $ "\nEverything looks fine..."
   putStrLn $ "\nTo publish the new repository directory, run command:\n"
@@ -393,28 +393,32 @@ depsToGraph cpmdeps =
          (nub (concatMap (\ (p,ds) -> map (\d -> (p,d)) ds) cpmdeps)))
 
 ------------------------------------------------------------------------------
--- Copy all package documentation into a directory
--- which can be used by Currygle to generate the documentation index
+-- Copy all package documentations from directory `packageDocDir` into
+-- the directory `currygleDocDir` so that the documentations
+-- can be used by Currygle to generate the documentation index
 copyPackageDocumentations :: IO ()
 copyPackageDocumentations = do
   config <- readConfiguration
   allpkgs <- getBaseRepository config >>= return . allPackages
-  let pkgs   = map newestVersion (groupBy (\a b -> name a == name b) allpkgs)
-      pkgids = sortBy (<=) $ map packageId pkgs
-  --putStrLn $ unlines $ pkgids
+  let pkgs   = map sortVersions (groupBy (\a b -> name a == name b) allpkgs)
+      pkgids = sortBy (\xs ys -> head xs <= head ys) (map (map packageId) pkgs)
   putStrLn $ "Number of package documentations: " ++ show (length pkgs)
   recreateDirectory currygleDocDir
   mapIO_ copyPackageDoc pkgids
  where
-  newestVersion ps = head (sortBy (\a b -> version a `vgt` version b) ps)
+  sortVersions ps = sortBy (\a b -> version a `vgt` version b) ps
 
-  copyPackageDoc pid = do
+  copyPackageDoc [] = done
+  copyPackageDoc (pid:pids) = do
     let pdir = packageDocDir </> pid
     exdoc <- doesDirectoryExist pdir
     if exdoc
       then do putStrLn $ "Copying documentation of " ++ pid ++ "..."
               copyDirectory pdir (currygleDocDir </> pid)
-      else putStrLn $ "Documentation " ++ pid ++ " does not exist!"
+      else
+        if null pids
+          then putStrLn $ "Documentation " ++ pid ++ " does not exist!"
+          else copyPackageDoc pids
 
 ------------------------------------------------------------------------------
 --- Reads to the .cpmrc file from the user's home directory and return
