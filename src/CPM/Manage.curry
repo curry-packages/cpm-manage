@@ -13,7 +13,7 @@ import Directory ( createDirectoryIfMissing, doesDirectoryExist
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd )
 import List      ( groupBy, nub, sortBy, sum )
-import System    ( getArgs, getPID, exitWith, system )
+import System    ( getArgs, exitWith, system )
 import Time      ( getLocalTime, toDayString )
 
 import HTML.Base
@@ -116,7 +116,7 @@ getAllPackageSpecs compat = do
   return (config,allpkgversions,allcompatpkgs)
  where
   -- Returns the first package compatible to the current compiler.
-  -- If compat is False and there are no compatible packages,
+  -- If `compat` is False and there are no compatible packages,
   -- return the first package.
   filterCompatPkgs cfg pkgs =
     let comppkgs = filter (isCompatibleToCompiler cfg) pkgs
@@ -194,7 +194,8 @@ manualRef pkg small =
 packageInfosAsHtmlTable :: [Package] -> HtmlExp
 packageInfosAsHtmlTable pkgs =
   headedTable $
-    [map ((:[]) . htxt)  ["Name", "API", "Doc","Executable","Synopsis", "Version"] ] ++
+    [map ((:[]) . htxt)
+         ["Name", "API", "Doc","Executable","Synopsis", "Version"] ] ++
     map formatPkg pkgs
  where
   formatPkg pkg =
@@ -435,8 +436,7 @@ readConfiguration =
 --- is deleted.
 inEmptyTempDir :: IO a -> IO a
 inEmptyTempDir a = do
-  pid <- getPID
-  tmp <- tempDir >>= return . (++ show pid)
+  tmp <- tempDir
   recreateDirectory tmp
   r  <- inDirectory tmp a
   removeDirectoryComplete tmp

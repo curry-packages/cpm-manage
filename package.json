@@ -5,13 +5,14 @@
     "synopsis": "Tools to manage the main repository of the Curry Package Manager",
     "category": [ "Packaging" ],
     "dependencies": {
+        "base"    : ">= 1.0.0, < 2.0.0",
         "cpm"     : ">= 2.1.0",
         "graphviz": ">= 2.0.0",
         "html"    : ">= 2.0.0"
     },
     "compilerCompatibility": {
-        "pakcs": ">= 2.0.0",
-        "kics2": ">= 2.0.0"
+        "pakcs": ">= 2.0.0, < 3.0.0",
+        "kics2": ">= 2.0.0, < 3.0.0"
     },
     "exportedModules": [ "CPM.Manage" ],
     "executable": {
