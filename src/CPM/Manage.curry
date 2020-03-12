@@ -9,7 +9,7 @@ module CPM.Manage ( main )
   where
 
 import Directory ( createDirectoryIfMissing, doesDirectoryExist
-                 , getCurrentDirectory )
+                 , getAbsolutePath, getCurrentDirectory, getHomeDirectory )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd )
 import List      ( groupBy, nub, sortBy, sum )
@@ -18,6 +18,7 @@ import Time      ( getLocalTime, toDayString )
 
 import HTML.Base
 import ShowDotGraph
+import Text.CSV     ( writeCSVFile )
 
 import CPM.Config          ( Config, repositoryDir, packageInstallDir
                            , readConfigurationWith )
@@ -42,17 +43,27 @@ import CPM.Resolution          ( isCompatibleToCompiler )
 cpmBaseURL :: String
 cpmBaseURL = "http://www.informatik.uni-kiel.de/~curry/cpm/DOC/"
 
---- Directory of CPM documentations
-cpmDocMainDir :: String
-cpmDocMainDir = "/net/medoc/home/mh/public_html/curry/cpm"
+--- Get default directory of CPM documentations
+getCpmDocDir :: IO String
+getCpmDocDir = do
+  homedir <- getHomeDirectory
+  return $ homedir </> "public_html" </> "curry" </> "cpm"
 
---- Subdirectory of `cpmDocMainDir` containing HTML files for each package
+--- Subdirectory of `CpmDocDir` containing HTML files for each package
 cpmHtmlSubDir :: String
 cpmHtmlSubDir = "HTML"
 
---- Directory containing all package documentations
-packageDocDir :: String
-packageDocDir = cpmDocMainDir </> "DOC"
+--- Get default directory containing all package documentations
+getPackageDocDir :: IO String
+getPackageDocDir = do
+  cpmdocdir <- getCpmDocDir
+  return $ cpmdocdir </> "DOC"
+
+--- Get default directory containing tar files of all packages
+getPackageTarDir :: IO String
+getPackageTarDir = do
+  cpmdocdir <- getCpmDocDir
+  return $ cpmdocdir </> "PACKAGES"
 
 --- Directory with documentations for Currygle
 currygleDocDir :: String
@@ -63,36 +74,51 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
-    ["genhtml"]     -> writeAllPackagesAsHTML
-    ["gendocs"]     -> generateDocsOfAllPackages
-    ["gentar"]      -> genTarOfAllPackages
+    ["genhtml"]     -> getCpmDocDir >>= writeAllPackagesAsHTML
+    ["genhtml",d]   -> writeAllPackagesAsHTML d
+    ["gendocs"]     -> getPackageDocDir >>= generateDocsOfAllPackages
+    ["gendocs",d]   -> getAbsolutePath d >>= generateDocsOfAllPackages
+    ["gentar"]      -> getPackageTarDir >>= genTarOfAllPackages
+    ["gentar",d]    -> getAbsolutePath d >>= genTarOfAllPackages
     ["testall"]     -> testAllPackages
-    ["add"]         -> addNewPackage
+    ["add"]         -> addNewPackage True
+    ["addnotag"]    -> addNewPackage False
     ["update"]      -> updatePackage
     ["showgraph"]   -> showAllPackageDependencies
-    ["copydocs"]    -> copyPackageDocumentations
-    ["--help"]      -> putStrLn helpText
-    ["-h"]          -> putStrLn helpText
-    _               -> do putStrLn $ "Wrong arguments!\n\n" ++ helpText
+    ["writedeps"]   -> writeAllPackageDependencies
+    ["copydocs"]    -> getPackageDocDir >>= copyPackageDocumentations
+    ["--help"]      -> getHelpText >>= putStrLn
+    ["-h"]          -> getHelpText >>= putStrLn
+    _               -> do putStrLn $ "Wrong arguments!\n"
+                          getHelpText >>= putStrLn
                           exitWith 1
 
-helpText :: String
-helpText = unlines $
-  [ "Options:", ""
-  , "add       : add this package version to the central repository"
-  , "update    : tag git repository of local package with current version"
-  , "            and update central index with current package specification"
-  , "genhtml   : generate HTML pages of central repository (in directory"
-  , "            '" ++ cpmDocMainDir ++ "')"
-  , "gendocs   : generate HTML documentations of all packages (in directory"
-  , "            '" ++ packageDocDir ++ "')"
-  , "gentar    : generate tar.gz files of all packages (in current directory)"
-  , "testall   : test all packages of the central repository"
-  , "showgraph : visualize all package dependencies as dot graph"
-  , "copydocs  : copy latest package documentations"
-  , "            from '" ++ packageDocDir ++ "'"
-  , "            to '" ++ currygleDocDir ++ "'"
-  ]
+getHelpText :: IO String
+getHelpText = do
+  cpmdocdir     <- getCpmDocDir
+  packagedocdir <- getPackageDocDir
+  tardir        <- getPackageTarDir
+  return $ unlines $
+    [ "Options:", ""
+    , "add          : add this package version to the central repository"
+    , "               and tag git repository of this package with its version"
+    , "addnotag     : add this package version to the central repository"
+    , "               (do not tag git repository)"
+    , "update       : tag git repository of local package with current version"
+    , "               and update central index with current package specification"
+    , "genhtml [<d>]: generate HTML pages of central repository into <d>"
+    , "               (default: '" ++ cpmdocdir ++ "')"
+    , "gendocs [<d>]: generate HTML documentations of all packages into <d>"
+    , "               (default: '" ++ packagedocdir ++ "')"
+    , "gentar  [<d>]: generate tar.gz files of all packages into <d>"
+    , "               (default: '" ++ tardir ++ "')"
+    , "testall      : test all packages of the central repository"
+    , "showgraph    : visualize all package dependencies as dot graph"
+    , "writedeps    : write all package dependencies as CSV file 'pkgs.csv'"
+    , "copydocs     : copy latest package documentations"
+    , "               from '" ++ packagedocdir ++ "'"
+    , "               to '" ++ currygleDocDir ++ "'"
+    ]
 
 ------------------------------------------------------------------------------
 --- Get all packages from the repository.
@@ -126,26 +152,28 @@ getAllPackageSpecs compat = do
 
 ------------------------------------------------------------------------------
 -- Generate web pages of the central repository
-writeAllPackagesAsHTML :: IO ()
-writeAllPackagesAsHTML = inDirectory cpmDocMainDir $ do
-  createDirectoryIfMissing True cpmHtmlSubDir
-  system ("chmod 755 " ++ cpmHtmlSubDir)
-  (config,allpkgversions,newestpkgs) <- getAllPackageSpecs False
-  putStrLn "Reading all package specifications..."
-  allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
-                   newestpkgs
-  let indexfile = "index.html"
-  ltime <- getLocalTime
-  putStrLn $ "Writing '" ++ indexfile ++ "'..."
-  writeReadableFile indexfile $ showHtmlPage $
-    cpmHtmlPage "Curry Packages in the CPM Repository" $
-      [h1 [htxt "Curry Packages in the ",
-           href "http://www.curry-lang.org/tools/cpm" [htxt "CPM"]
-             `addAttr` ("target","_blank"),
-           htxt $ " Repository (" ++ toDayString ltime ++ ")"],
-       packageInfosAsHtmlTable allpkgs] ++
-       pkgStatistics allpkgversions newestpkgs
-  mapIO_ writePackageAsHTML allpkgs
+writeAllPackagesAsHTML :: String -> IO ()
+writeAllPackagesAsHTML cpmdocdir = do
+  createDirectoryIfMissing True cpmdocdir
+  inDirectory cpmdocdir $ do
+   createDirectoryIfMissing True cpmHtmlSubDir
+   system $ "chmod 755 " ++ cpmHtmlSubDir
+   (config,allpkgversions,newestpkgs) <- getAllPackageSpecs False
+   putStrLn "Reading all package specifications..."
+   allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
+                    newestpkgs
+   let indexfile = "index.html"
+   ltime <- getLocalTime
+   putStrLn $ "Writing '" ++ indexfile ++ "'..."
+   writeReadableFile indexfile $ showHtmlPage $
+     cpmHtmlPage "Curry Packages in the CPM Repository" $
+       [h1 [htxt "Curry Packages in the ",
+            href "http://www.curry-lang.org/tools/cpm" [htxt "CPM"]
+              `addAttr` ("target","_blank"),
+            htxt $ " Repository (" ++ toDayString ltime ++ ")"],
+        packageInfosAsHtmlTable allpkgs] ++
+        pkgStatistics allpkgversions newestpkgs
+   mapIO_ writePackageAsHTML allpkgs
  where
   pkgStatistics allpkgversions newestpkgs =
     [h4 [htxt "Statistics:"],
@@ -221,8 +249,8 @@ cpmTitledHtmlPage title hexps = cpmHtmlPage title (h1 [htxt title] : hexps)
 
 ------------------------------------------------------------------------------
 -- Generate HTML documentation of all packages in the central repository
-generateDocsOfAllPackages :: IO ()
-generateDocsOfAllPackages = do
+generateDocsOfAllPackages :: String -> IO ()
+generateDocsOfAllPackages packagedocdir = do
   (_,_,allpkgs) <- getAllPackageSpecs True
   mapIO_ genDocOfPackage allpkgs
  where
@@ -234,7 +262,7 @@ generateDocsOfAllPackages = do
                       , "cypm","checkout", pname, pversion, "&&"
                       , "cd", pname, "&&"
                       , "cypm", "install", "--noexec", "&&"
-                      , "cypm", "doc", "--docdir", cpmDocMainDir </> "DOC"
+                      , "cypm", "doc", "--docdir", packagedocdir
                               , "--url", cpmBaseURL, "&&"
                       , "cd ..", "&&"
                       , "rm -rf", pname
@@ -259,20 +287,21 @@ dline = take 78 (repeat '=')
 
 ------------------------------------------------------------------------------
 -- Generate tar.gz files of all packages (in the current directory)
-genTarOfAllPackages :: IO ()
-genTarOfAllPackages = do
-  putStrLn "Generating tar.gz of all package versions..."
+genTarOfAllPackages :: String -> IO ()
+genTarOfAllPackages tardir = do
+  createDirectoryIfMissing True tardir
+  putStrLn $ "Generating tar.gz of all package versions in '" ++ tardir ++
+             "'..."
   (cfg,allpkgversions,_) <- getAllPackageSpecs False
   allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository cfg)
                    (sortBy (\ps1 ps2 -> packageId ps1 <= packageId ps2)
                            (concat allpkgversions))
-  curdir <- getCurrentDirectory
-  mapIO_ (writePackageAsTar cfg curdir) allpkgs --(take 3 allpkgs)
+  mapIO_ (writePackageAsTar cfg) allpkgs --(take 3 allpkgs)
  where
-  writePackageAsTar cfg tfdir pkg = do
+  writePackageAsTar cfg pkg = do
     let pkgname  = name pkg
         pkgid    = packageId pkg
-        tarfile  = tfdir </> pkgid ++ ".tar.gz"
+        tarfile  = tardir </> pkgid ++ ".tar.gz"
     putStrLn $ "Checking out '" ++ pkgid ++ "'..."
     let checkoutdir = pkgname
     system $ unwords [ "rm -rf", checkoutdir ]
@@ -291,11 +320,11 @@ genTarOfAllPackages = do
 ------------------------------------------------------------------------------
 -- Add a new package (already committed and pushed into its git repo)
 -- where the package specification is stored in the current directory.
-addNewPackage :: IO ()
-addNewPackage = do
+addNewPackage :: Bool -> IO ()
+addNewPackage withtag = do
   config <- readConfiguration
   pkg <- fromErrorLogger (loadPackageSpec ".")
-  setTagInGit pkg
+  when withtag $ setTagInGit pkg
   let pkgIndexDir      = name pkg </> showVersion (version pkg)
       pkgRepositoryDir = repositoryDir config </> pkgIndexDir
       pkgInstallDir    = packageInstallDir config </> packageId pkg
@@ -374,7 +403,7 @@ updatePackage = do
   fromErrorLogger $ addPackageToRepository config "." True False
 
 ------------------------------------------------------------------------------
--- Show package dependencies as graph
+-- Show package dependencies as dot graph
 showAllPackageDependencies :: IO ()
 showAllPackageDependencies = do
   config <- readConfiguration
@@ -393,12 +422,22 @@ depsToGraph cpmdeps =
     (map (\ (s,t) -> Edge s t [])
          (nub (concatMap (\ (p,ds) -> map (\d -> (p,d)) ds) cpmdeps)))
 
+-- Write package dependencies into CSV file 'pkgs.csv'
+writeAllPackageDependencies :: IO ()
+writeAllPackageDependencies = do
+  (_,_,pkgs) <- getAllPackageSpecs True
+  let alldeps = map (\p -> (name p, map (\ (Dependency p' _) -> p')
+                                        (dependencies p)))
+                    pkgs
+  writeCSVFile "pkgs.csv" (map (\ (p,ds) -> p:ds) alldeps)
+  putStrLn $ "Package dependencies written to 'pkgs.csv'"
+
 ------------------------------------------------------------------------------
--- Copy all package documentations from directory `packageDocDir` into
+-- Copy all package documentations from directory `packagedocdir` into
 -- the directory `currygleDocDir` so that the documentations
 -- can be used by Currygle to generate the documentation index
-copyPackageDocumentations :: IO ()
-copyPackageDocumentations = do
+copyPackageDocumentations :: String -> IO ()
+copyPackageDocumentations packagedocdir = do
   config <- readConfiguration
   allpkgs <- getBaseRepository config >>= return . allPackages
   let pkgs   = map sortVersions (groupBy (\a b -> name a == name b) allpkgs)
@@ -411,7 +450,7 @@ copyPackageDocumentations = do
 
   copyPackageDoc [] = done
   copyPackageDoc (pid:pids) = do
-    let pdir = packageDocDir </> pid
+    let pdir = packagedocdir </> pid
     exdoc <- doesDirectoryExist pdir
     if exdoc
       then do putStrLn $ "Copying documentation of " ++ pid ++ "..."
