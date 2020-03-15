@@ -41,7 +41,7 @@ import CPM.Resolution          ( isCompatibleToCompiler )
 
 --- Base URL of CPM documentations
 cpmBaseURL :: String
-cpmBaseURL = "http://www.informatik.uni-kiel.de/~curry/cpm/DOC/"
+cpmBaseURL = "https://www-ps.informatik.uni-kiel.de/~cpm/DOC/"
 
 --- Get default directory of CPM documentations
 getCpmDocDir :: IO String
@@ -87,6 +87,7 @@ main = do
     ["showgraph"]   -> showAllPackageDependencies
     ["writedeps"]   -> writeAllPackageDependencies
     ["copydocs"]    -> getPackageDocDir >>= copyPackageDocumentations
+    ["copydocs",d]  -> getAbsolutePath d >>= copyPackageDocumentations
     ["--help"]      -> getHelpText >>= putStrLn
     ["-h"]          -> getHelpText >>= putStrLn
     _               -> do putStrLn $ "Wrong arguments!\n"
@@ -100,24 +101,24 @@ getHelpText = do
   tardir        <- getPackageTarDir
   return $ unlines $
     [ "Options:", ""
-    , "add          : add this package version to the central repository"
-    , "               and tag git repository of this package with its version"
-    , "addnotag     : add this package version to the central repository"
-    , "               (do not tag git repository)"
-    , "update       : tag git repository of local package with current version"
-    , "               and update central index with current package specification"
-    , "genhtml [<d>]: generate HTML pages of central repository into <d>"
-    , "               (default: '" ++ cpmdocdir ++ "')"
-    , "gendocs [<d>]: generate HTML documentations of all packages into <d>"
-    , "               (default: '" ++ packagedocdir ++ "')"
-    , "gentar  [<d>]: generate tar.gz files of all packages into <d>"
-    , "               (default: '" ++ tardir ++ "')"
-    , "testall      : test all packages of the central repository"
-    , "showgraph    : visualize all package dependencies as dot graph"
-    , "writedeps    : write all package dependencies as CSV file 'pkgs.csv'"
-    , "copydocs     : copy latest package documentations"
-    , "               from '" ++ packagedocdir ++ "'"
-    , "               to '" ++ currygleDocDir ++ "'"
+    , "add           : add this package version to the central repository"
+    , "                and tag git repository of this package with its version"
+    , "addnotag      : add this package version to the central repository"
+    , "                (do not tag git repository)"
+    , "update        : tag git repository of local package with current version"
+    , "                and update central index with current package specification"
+    , "genhtml [<d>] : generate HTML pages of central repository into <d>"
+    , "                (default: '" ++ cpmdocdir ++ "')"
+    , "gendocs [<d>] : generate HTML documentations of all packages into <d>"
+    , "                (default: '" ++ packagedocdir ++ "')"
+    , "gentar  [<d>] : generate tar.gz files of all packages into <d>"
+    , "                (default: '" ++ tardir ++ "')"
+    , "testall       : test all packages of the central repository"
+    , "showgraph     : visualize all package dependencies as dot graph"
+    , "writedeps     : write all package dependencies as CSV file 'pkgs.csv'"
+    , "copydocs [<d>]: copy latest package documentations"
+    , "                from <d> (default: '" ++ packagedocdir ++ "')"
+    , "                to '" ++ currygleDocDir ++ "'"
     ]
 
 ------------------------------------------------------------------------------
