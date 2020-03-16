@@ -8,7 +8,7 @@
 module CPM.Manage ( main )
   where
 
-import Directory ( createDirectoryIfMissing, doesDirectoryExist
+import Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
                  , getAbsolutePath, getCurrentDirectory, getHomeDirectory )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd )
@@ -40,8 +40,8 @@ import CPM.Resolution          ( isCompatibleToCompiler )
 -- Some global settings:
 
 --- Base URL of CPM documentations
-cpmBaseURL :: String
-cpmBaseURL = "https://www-ps.informatik.uni-kiel.de/~cpm/DOC/"
+cpmDocURL :: String
+cpmDocURL = "https://www-ps.informatik.uni-kiel.de/~cpm/DOC/"
 
 --- Get default directory of CPM documentations
 getCpmDocDir :: IO String
@@ -185,11 +185,19 @@ writeAllPackagesAsHTML cpmdocdir = do
     let pname    = name pkg
         pkgid    = packageId pkg
         htmlfile = cpmHtmlSubDir </> pkgid ++ ".html"
+        readmefile = "DOC" </> pkgid </> "README.html"
+    hasreadme <- doesFileExist readmefile
     putStrLn $ "Writing '" ++ htmlfile ++ "'..."
     let pkginfo = renderPackageInfo True True True pkg
         manref  = manualRef pkg False
     writeReadableFile htmlfile $ showHtmlPage $
       cpmTitledHtmlPage ("Curry Package '" ++ pname ++ "'") $
+        (if hasreadme
+           then [blockstyle "reference"
+                   [href --(cpmDocURL ++ pkgid </> "README.html")
+                         ("../" ++ readmefile)
+                         [htxt "README"] `addClass` "arrow"]]
+           else []) ++
         [blockstyle "reference" $ apiRef pkg False] ++
         (if null manref then [] else [blockstyle "reference" manref]) ++
         [blockstyle "metadata"
@@ -205,7 +213,7 @@ apiRef :: Package -> Bool -> [HtmlExp]
 apiRef pkg small =
  let title       = if small then "API" else "API documentation"
      addArrow he = if small then he else addClass he "arrow"
- in [addArrow $ href (cpmBaseURL ++ packageId pkg) [htxt title]]
+ in [addArrow $ href (cpmDocURL ++ packageId pkg) [htxt title]]
 
 --- Manual reference of a package:
 manualRef :: Package -> Bool -> [HtmlExp]
@@ -215,7 +223,7 @@ manualRef pkg small =
  in case documentation pkg of
       Nothing -> []
       Just (PackageDocumentation _ docmain _) ->
-        [addArrow $ href (cpmBaseURL ++ packageId pkg </>
+        [addArrow $ href (cpmDocURL ++ packageId pkg </>
                           replaceExtension docmain ".pdf")
                          [htxt title]]
 
@@ -264,7 +272,7 @@ generateDocsOfAllPackages packagedocdir = do
                       , "cd", pname, "&&"
                       , "cypm", "install", "--noexec", "&&"
                       , "cypm", "doc", "--docdir", packagedocdir
-                              , "--url", cpmBaseURL, "&&"
+                              , "--url", cpmDocURL, "&&"
                       , "cd ..", "&&"
                       , "rm -rf", pname
                       ]
