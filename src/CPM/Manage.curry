@@ -12,20 +12,22 @@ import Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
                  , getAbsolutePath, getCurrentDirectory )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd )
-import List      ( groupBy, nub, sortBy, sum )
+import List      ( groupBy, intercalate, nub, sortBy, sum )
 import System    ( getArgs, exitWith, system )
-import Time      ( getLocalTime, toDayString )
+import Time      ( CalendarTime, calendarTimeToString
+                 , getLocalTime, toDayString )
 
 import HTML.Base
+import HTML.Styles.Bootstrap3  ( bootstrapPage, glyphicon, homeIcon )
 import ShowDotGraph
-import Text.CSV     ( writeCSVFile )
+import Text.CSV                ( writeCSVFile )
 
-import CPM.Config          ( Config, repositoryDir, packageInstallDir
-                           , readConfigurationWith )
+import CPM.Config              ( Config, repositoryDir, packageInstallDir
+                               , readConfigurationWith )
 import CPM.ErrorLogger
-import CPM.FileUtil        ( copyDirectory, inDirectory, tempDir
-                           , recreateDirectory
-                           , removeDirectoryComplete )
+import CPM.FileUtil            ( copyDirectory, inDirectory, tempDir
+                               , recreateDirectory
+                               , removeDirectoryComplete )
 import CPM.Package
 import CPM.PackageCache.Global ( acquireAndInstallPackageFromSource
                                , checkoutPackage )
@@ -141,7 +143,7 @@ getAllPackageSpecs compat = do
          else [head comppkgs]
 
 ------------------------------------------------------------------------------
--- Generate web index pages of the CPM repository.
+-- Generate main HTML index pages of the CPM repository.
 writePackageIndexAsHTML :: String -> IO ()
 writePackageIndexAsHTML cpmindexdir = do
   createDirectoryIfMissing True cpmindexdir
@@ -149,101 +151,101 @@ writePackageIndexAsHTML cpmindexdir = do
    createDirectoryIfMissing True packageHtmlDir
    system $ "chmod 755 " ++ packageHtmlDir
    (config,allpkgversions,newestpkgs) <- getAllPackageSpecs False
+   let stats = pkgStatistics allpkgversions newestpkgs
    putStrLn "Reading all package specifications..."
-   allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
-                    newestpkgs
-   let indexfile = "index.html"
-   ltime <- getLocalTime
-   putStrLn $ "Writing '" ++ indexfile ++ "'..."
-   writeReadableFile indexfile $ showHtmlPage $
-     cpmHtmlPage "Curry Packages in the CPM Repository" $
-       [h1 [htxt "Curry Packages in the ",
-            href "http://www.curry-lang.org/tools/cpm" [htxt "CPM"]
-              `addAttr` ("target","_blank"),
-            htxt $ " Repository (" ++ toDayString ltime ++ ")"],
-        packageInfosAsHtmlTable allpkgs] ++
-        pkgStatistics allpkgversions newestpkgs
-   mapIO_ writePackageAsHTML allpkgs
+   allnpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
+                     newestpkgs
+   writePackageIndex allnpkgs "index.html" stats
+   allvpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
+                     (concat
+                        (sortBy (\pg1 pg2 -> name (head pg1) <= name (head pg2))
+                                allpkgversions))
+   writePackageIndex allvpkgs "index_versions.html" stats
+   mapIO_ writePackageAsHTML allvpkgs
  where
+  writePackageIndex allpkgs indexfile statistics = do
+    ltime <- getLocalTime
+    putStrLn $ "Writing '" ++ indexfile ++ "'..."
+    indextable <- packageInfosAsHtmlTable allpkgs
+    pagestring <-
+      cpmIndexPage "Curry Packages in the CPM Repository"
+        [h1 [htxt "Curry Packages in the CPM Repository"]]
+        ([h2 [htxt $ "Version: " ++ toDayString ltime ++ ""], indextable] ++
+         statistics)
+    writeReadableFile indexfile pagestring
+
   pkgStatistics allpkgversions newestpkgs =
     [h4 [htxt "Statistics:"],
      par [htxt $ show (length newestpkgs) ++ " packages", breakline,
           htxt $ show (length (concat allpkgversions)) ++ " package versions"]]
          
   writePackageAsHTML pkg = do
-    let pname    = name pkg
-        pkgid    = packageId pkg
-        htmlfile = packageHtmlDir </> pkgid ++ ".html"
-        readmefile = "DOC" </> pkgid </> "README.html"
-    hasreadme <- doesFileExist readmefile
+    hasapi     <- doesDirectoryExist apiDir
+    hasreadme  <- doesFileExist readmefile
+    hasreadmei <- doesFileExist readmeifile
+    readmei    <- if hasreadmei then readFile readmeifile else return ""
     putStrLn $ "Writing '" ++ htmlfile ++ "'..."
     let pkginfo = renderPackageInfo True True True pkg
-        manref  = manualRef pkg False
-    writeReadableFile htmlfile $ showHtmlPage $
-      cpmTitledHtmlPage ("Curry Package '" ++ pname ++ "'") $
-        (if hasreadme
-           then [blockstyle "reference"
-                   [href --(cpmDocURL ++ pkgid </> "README.html")
-                         ("../" ++ readmefile)
-                         [htxt "README"] `addClass` "arrow"]]
-           else []) ++
-        [blockstyle "reference" $ apiRef pkg False] ++
-        (if null manref then [] else [blockstyle "reference" manref]) ++
-        [blockstyle "metadata"
-           [h3 [htxt "Package metadata:"],
-            verbatim pkginfo]]
+    pagestring <-
+      cpmPackagePage ("Curry Package '" ++ pname ++ "'")
+        ((if hasreadme then [ehref ("../" ++ readmefile) [htxt "README"]]
+                       else []) ++
+         (if hasapi
+            then [ehref (cpmDocURL ++ pkgid) [htxt "API documentation"]] ++
+                 maybe []
+                       (\mref -> [href mref [htxt "Manual (PDF)"]])
+                       (manualURL pkg)
+            else []))
+        ([h3 [htxt "Package metadata:"], verbatim pkginfo] ++
+         if hasreadmei then [HtmlText readmei] else [])
+    writeReadableFile htmlfile pagestring
+   where
+    pname       = name pkg
+    pkgid       = packageId pkg
+    htmlfile    = packageHtmlDir </> pkgid ++ ".html"
+    apiDir      = "DOC" </> pkgid
+    readmefile  = apiDir </> "README.html"
+    readmeifile = apiDir </> "README_I.html"
 
 --- Writes a file readable for all:
 writeReadableFile :: String -> String -> IO ()
 writeReadableFile f s = writeFile f s >> system ("chmod 644 " ++ f) >> done
 
---- API reference of a package:
-apiRef :: Package -> Bool -> [HtmlExp]
-apiRef pkg small =
- let title       = if small then "API" else "API documentation"
-     addArrow he = if small then he else addClass he "arrow"
- in [addArrow $ href (cpmDocURL ++ packageId pkg) [htxt title]]
-
---- Manual reference of a package:
-manualRef :: Package -> Bool -> [HtmlExp]
-manualRef pkg small =
- let title       = if small then "PDF" else "Manual (PDF)"
-     addArrow he = if small then he else addClass he "arrow"
- in case documentation pkg of
-      Nothing -> []
-      Just (PackageDocumentation _ docmain _) ->
-        [addArrow $ href (cpmDocURL ++ packageId pkg </>
-                          replaceExtension docmain ".pdf")
-                         [htxt title]]
+--- Manual URL of a package (if specified in package).
+manualURL :: Package -> Maybe String
+manualURL pkg = case documentation pkg of
+  Nothing -> Nothing
+  Just (PackageDocumentation _ docmain _) ->
+    Just (cpmDocURL ++ packageId pkg </> replaceExtension docmain ".pdf")
 
 -- Format a list of packages as an HTML table
-packageInfosAsHtmlTable :: [Package] -> HtmlExp
-packageInfosAsHtmlTable pkgs =
-  headedTable $
-    [map ((:[]) . htxt)
-         ["Name", "API", "Doc","Executable","Synopsis", "Version"] ] ++
-    map formatPkg pkgs
+packageInfosAsHtmlTable :: [Package] -> IO HtmlExp
+packageInfosAsHtmlTable pkgs = do
+  rows <- mapM formatPkg pkgs
+  return $ borderedHeadedTable
+    (map ((:[]) . htxt)
+         ["Name", "API", "Doc","Executable","Synopsis", "Version"])
+    rows
  where
-  formatPkg pkg =
-    [ [href (packageHtmlDir </> packageId pkg ++ ".html") [htxt $ name pkg]]
-    , apiRef pkg True
-    , let manref = manualRef pkg True
-      in if null manref then [nbsp] else manref
-    , [htxt $ maybe ""
-                    (\ (PackageExecutable n _ _) -> n)
-                    (executableSpec pkg)]
-    , [htxt $ synopsis pkg]
-    , [htxt $ showVersion (version pkg)] ]
-
---- Standard HTML page with a title for CPM generated docs.
-cpmHtmlPage :: String -> [HtmlExp] -> HtmlPage
-cpmHtmlPage title hexps =
-  page title hexps `addPageParam` pageCSS "css/cpm.css"
-
---- Standard HTML page with a title (included in the body)
---- for CPM generated docs:
-cpmTitledHtmlPage :: String -> [HtmlExp] -> HtmlPage
-cpmTitledHtmlPage title hexps = cpmHtmlPage title (h1 [htxt title] : hexps)
+  formatPkg pkg = do
+    hasapi    <- doesDirectoryExist apiDir
+    hasreadme <- doesFileExist readmefile
+    let readmeref = if hasreadme then [ehref readmefile [htxt "README"]]
+                                 else []
+        docref    = maybe [] (\r -> [href r [htxt "PDF"]]) (manualURL pkg)
+    return
+      [ [href (packageHtmlDir </> pkgid ++ ".html") [htxt $ name pkg]]
+      , if hasapi then [ehref (cpmDocURL ++ pkgid) [htxt "API"]] else [nbsp]
+      , if hasapi then docref else [nbsp]
+      , [htxt $ maybe ""
+                      (\ (PackageExecutable n _ _) -> n)
+                      (executableSpec pkg)]
+      , [htxt $ synopsis pkg]
+      , [htxt $ showVersion (version pkg)] ]
+   where
+    pkgid      = packageId pkg
+    apiDir     = "DOC" </> pkgid
+    readmefile = "DOC" </> pkgid </> "README.html"
 
 ------------------------------------------------------------------------------
 -- Generate HTML documentation of all packages in the central repository
@@ -483,5 +485,117 @@ inEmptyTempDir a = do
 -- The name of the package specification file.
 packageSpecFile :: String
 packageSpecFile = "package.json"
+
+--------------------------------------------------------------------------
+-- Auxiliary operations to support generated HTML pages.
+
+--- Standard HTML page for generated CPM index.
+cpmIndexPage :: String -> [HtmlExp] -> [HtmlExp] -> IO String
+cpmIndexPage title htmltitle maindoc = do
+  time <- getLocalTime
+  return $ showHtmlPage $
+    bootstrapPage "bt3" cssIncludes title homeBrand (leftTopMenu False)
+                  rightTopMenu 0 [] htmltitle maindoc (curryDocFooter time)
+
+--- Standard HTML page for generated package descriptions.
+cpmPackagePage :: String -> [HtmlExp] -> [HtmlExp] -> IO String
+cpmPackagePage title sidemenu maindoc = do
+  let htmltitle = [h1 [htxt title]]
+  time <- getLocalTime
+  return $ showHtmlPage $
+    bootstrapPage styleBaseURL cssIncludes title homeBrand
+                  (leftTopMenu True) rightTopMenu 3 sidenav htmltitle maindoc
+                  (curryDocFooter time)
+ where
+  sidenav =
+    [ bold [htxt "Further infos:"]
+    , ulist (map (:[]) sidemenu) `addClass` "nav nav-sidebar"
+    ]
+
+
+--- The URL of the Curry homepage
+curryHomeURL :: String
+curryHomeURL = "http://www.curry-lang.org"
+
+--- The URL of CPM
+cpmHomeURL :: String
+cpmHomeURL = "http://www.curry-lang.org/tools/cpm"
+
+--- The URL of the base directory containing the styles, images, etc.
+styleBaseURL :: String
+styleBaseURL = "../bt3"
+
+cssIncludes :: [String]
+cssIncludes = ["bootstrap.min","cpm"]
+
+homeBrand :: (String,[HtmlExp])
+homeBrand = (cpmHomeURL, [homeIcon, nbsp, htxt "Curry Package Manager"])
+
+--- The standard left top menu.
+leftTopMenu :: Bool -> [[HtmlExp]]
+leftTopMenu inpkg =
+  [ [href (if inpkg then "../index.html" else "index.html")
+          [htxt "All packages"]]
+  , [href (if inpkg then "../index_versions.html" else "index_versions.html")
+          [htxt "All package versions"]]
+  ]
+
+--- The standard right top menu.
+rightTopMenu :: [[HtmlExp]]
+rightTopMenu =
+  [ curryHomeItem
+  --, [ehref (currySystemURL++"/lib/")
+  --         [extLinkIcon, htxt $ " "++currySystem++" Libraries"]]
+  --, [ehref (curryHomeURL ++ "/tools/currydoc")
+  --         [extLinkIcon, htxt " About CurryDoc"]]
+  ]
+
+--------------------------------------------------------------------------
+-- Icons:
+
+extLinkIcon :: HtmlExp
+extLinkIcon = glyphicon "new-window"
+
+--------------------------------------------------------------------------
+-- Standard footer information for generated web pages:
+curryDocFooter :: CalendarTime -> [HtmlExp]
+curryDocFooter time =
+  [italic [htxt "Generated by cpm-manage at ",
+           htxt (calendarTimeToString time)]]
+
+curryHomeItem :: [HtmlExp]
+curryHomeItem = [ehref curryHomeURL [extLinkIcon, htxt " Curry Homepage"]]
+
+--- An anchored section in the document:
+anchoredSection :: String -> [HtmlExp] -> HtmlExp
+anchoredSection tag doc = section doc `addAttr` ("id",tag)
+
+--- An anchored element in the document:
+anchored :: String -> [HtmlExp] -> HtmlExp
+anchored tag doc = style "anchored" doc `addAttr` ("id",tag)
+
+--- An anchored element in the document:
+anchoredDiv :: String -> [HtmlExp] -> HtmlExp
+anchoredDiv tag doc = block doc `addAttr` ("class", "anchored")
+                                `addAttr` ("id",tag)
+
+--- A bordered headed table:
+borderedHeadedTable :: [[HtmlExp]] -> [[[HtmlExp]]] -> HtmlExp
+borderedHeadedTable headrow rows =
+  headedTable headrow rows `addClass` "table table-bordered table-hover"
+
+--- Headed table with a header row and a matrix of items.
+--- Each item is a list of HTML expressions.
+headedTable :: [[HtmlExp]] -> [[[HtmlExp]]] -> HtmlExp
+headedTable headrow items =
+  HtmlStruct "table" []
+    [HtmlStruct "thead" [] [toRow "th" headrow],
+     HtmlStruct "tbody" [] (map (toRow "td") items)]
+ where
+  toRow ti row = HtmlStruct "tr" [] (map (\item -> HtmlStruct ti [] item) row)
+
+--- An external reference
+ehref :: String -> [HtmlExp] -> HtmlExp
+ehref url desc = href url desc `addAttr` ("target","_blank")
 
 ------------------------------------------------------------------------------
