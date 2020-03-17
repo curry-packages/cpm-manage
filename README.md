@@ -2,18 +2,22 @@
 
 This package contains tools to manage the central repository
 of the Curry Package Manager CPM.
-Currently, it provides support to test all packages of the
-central repository and to add a new package to it.
+For instance, it provides support to test all packages of the
+central repository or to generate web pages for all packages.
 
 ## Installing the tool
 
 After checking out the tool by the command
 
-    > cpm checkout cpm-manage
+    > cypm checkout cpm-manage
 
 go into the root directory of the package and run
 
-    > cpm install
+    > cypm install
+
+Alternatively, one can install the latest version directly by
+
+    > cypm install cpm-manage
 
 This installs the executable `cpm-manage` in the bin directory
 of CPM.
@@ -21,17 +25,16 @@ of CPM.
 
 ## Using the tool
 
-This tool provides two commands:
+This tool provides various commands. For instance,
 
     > cpm-manage testall
 
-This tests all packages of the central repository by installing
-each package and testing it with `cpm test`.
+tests all packages of the central repository by installing
+each package and testing it with `cypm test`.
 
-    > cpm-manage add package.json
+The command
 
-This package checks out the package specifed by the given JSON file,
-tests is with `cpm test`, and, if everything is successful,
-adds to the local copy of central repository.
-Thus, one can push a new version of this central repository
-in order to publish the package.
+    > cpm-manage genhtml
+
+generates HTML pages for all packages of the central repository.
+
