@@ -156,12 +156,12 @@ writePackageIndexAsHTML cpmindexdir = do
    allnpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
                      newestpkgs
    writePackageIndex allnpkgs "index.html" stats
-   allvpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
+   {-allvpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
                      (concat
                         (sortBy (\pg1 pg2 -> name (head pg1) <= name (head pg2))
                                 allpkgversions))
-   writePackageIndex allvpkgs "index_versions.html" stats
-   mapIO_ writePackageAsHTML allvpkgs
+   writePackageIndex allvpkgs "index_versions.html" stats -}
+   mapIO_ writePackageAsHTML allnpkgs --allvpkgs
  where
   writePackageIndex allpkgs indexfile statistics = do
     ltime <- getLocalTime
@@ -185,19 +185,21 @@ writePackageIndexAsHTML cpmindexdir = do
     hasreadmei <- doesFileExist readmeifile
     readmei    <- if hasreadmei then readFile readmeifile else return ""
     putStrLn $ "Writing '" ++ htmlfile ++ "'..."
-    let pkginfo = renderPackageInfo True True True pkg
+    let metadata = renderPackageInfo True True True pkg
+        apilinks = if hasapi
+                     then [[ehref (cpmDocURL ++ pkgid)
+                                  [htxt "API documentation"]]] ++
+                          maybe []
+                                (\mref -> [[href mref [htxt "Manual (PDF)"]]])
+                                (manualURL pkg)
+                     else []
+        infomenu = (if hasreadme
+                      then [[ehref ("../" ++ readmefile) [htxt "README"]]]
+                      else []) ++ apilinks
     pagestring <-
       cpmPackagePage ("Curry Package '" ++ pname ++ "'")
-        ((if hasreadme then [ehref ("../" ++ readmefile) [htxt "README"]]
-                       else []) ++
-         (if hasapi
-            then [ehref (cpmDocURL ++ pkgid) [htxt "API documentation"]] ++
-                 maybe []
-                       (\mref -> [href mref [htxt "Manual (PDF)"]])
-                       (manualURL pkg)
-            else []))
-        ([h3 [htxt "Package metadata:"], verbatim pkginfo] ++
-         if hasreadmei then [HtmlText readmei] else [])
+        metadata infomenu apilinks
+        (if hasreadmei then [HtmlText readmei] else [])
     writeReadableFile htmlfile pagestring
    where
     pname       = name pkg
@@ -498,18 +500,20 @@ cpmIndexPage title htmltitle maindoc = do
                   rightTopMenu 0 [] htmltitle maindoc (curryDocFooter time)
 
 --- Standard HTML page for generated package descriptions.
-cpmPackagePage :: String -> [HtmlExp] -> [HtmlExp] -> IO String
-cpmPackagePage title sidemenu maindoc = do
+cpmPackagePage :: String -> String -> [[HtmlExp]] -> [[HtmlExp]] -> [HtmlExp]
+               -> IO String
+cpmPackagePage title metadata sidemenu apilinks maindoc = do
   let htmltitle = [h1 [htxt title]]
   time <- getLocalTime
   return $ showHtmlPage $
     bootstrapPage styleBaseURL cssIncludes title homeBrand
-                  (leftTopMenu True) rightTopMenu 3 sidenav htmltitle maindoc
-                  (curryDocFooter time)
+                  (leftTopMenu True) (apilinks ++ rightTopMenu) 4 sidenav
+                  htmltitle maindoc (curryDocFooter time)
  where
   sidenav =
-    [ bold [htxt "Further infos:"]
-    , ulist (map (:[]) sidemenu) `addClass` "nav nav-sidebar"
+    [ bold [htxt "Package metadata:"], verbatim metadata
+    , bold [htxt "Further infos:"]
+    , ulist sidemenu `addClass` "nav nav-sidebar"
     ]
 
 
