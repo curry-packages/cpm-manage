@@ -9,10 +9,10 @@ module CPM.Manage ( main )
   where
 
 import Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
-                 , getAbsolutePath, getCurrentDirectory )
+                 , getAbsolutePath, getCurrentDirectory, getDirectoryContents )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd )
-import List      ( groupBy, intercalate, nub, sortBy, sum )
+import List      ( groupBy, intercalate, isSuffixOf, nub, sortBy, sum )
 import System    ( getArgs, exitWith, system )
 import Time      ( CalendarTime, calendarTimeToString
                  , getLocalTime, toDayString )
@@ -20,7 +20,7 @@ import Time      ( CalendarTime, calendarTimeToString
 import HTML.Base
 import HTML.Styles.Bootstrap3  ( bootstrapPage, glyphicon, homeIcon )
 import ShowDotGraph
-import Text.CSV                ( writeCSVFile )
+import Text.CSV                ( readCSVFile, writeCSVFile )
 
 import CPM.Config              ( Config, repositoryDir, packageInstallDir
                                , readConfigurationWith )
@@ -74,7 +74,8 @@ main = do
     ["gendocs",d]   -> getAbsolutePath d >>= generateDocsOfAllPackages
     ["gentar"]      -> genTarOfAllPackages packageTarDir
     ["gentar",d]    -> getAbsolutePath d >>= genTarOfAllPackages
-    ["testall"]     -> testAllPackages
+    ["testall"]     -> testAllPackages ""
+    ["testall",d]   -> getAbsolutePath d >>= testAllPackages
     ["add"]         -> addNewPackage True
     ["addnotag"]    -> addNewPackage False
     ["update"]      -> updatePackage
@@ -104,7 +105,8 @@ getHelpText = do
     , "                (default: '" ++ packageDocDir ++ "')"
     , "gentar  [<d>] : generate tar.gz files of all packages into <d>"
     , "                (default: '" ++ packageTarDir ++ "')"
-    , "testall       : test all packages of the central repository"
+    , "testall [<d>] : test all packages of the central repository"
+    , "                and write test statistics into directory <d>"
     , "showgraph     : visualize all package dependencies as dot graph"
     , "writedeps     : write all package dependencies as CSV file 'pkgs.csv'"
     , "copydocs [<d>]: copy latest package documentations"
@@ -156,12 +158,12 @@ writePackageIndexAsHTML cpmindexdir = do
    allnpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
                      newestpkgs
    writePackageIndex allnpkgs "index.html" stats
-   {-allvpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
+   allvpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
                      (concat
                         (sortBy (\pg1 pg2 -> name (head pg1) <= name (head pg2))
                                 allpkgversions))
-   writePackageIndex allvpkgs "index_versions.html" stats -}
-   mapIO_ writePackageAsHTML allnpkgs --allvpkgs
+   writePackageIndex allvpkgs "index_versions.html" stats
+   mapIO_ writePackageAsHTML allvpkgs
  where
   writePackageIndex allpkgs indexfile statistics = do
     ltime <- getLocalTime
@@ -231,10 +233,7 @@ packageInfosAsHtmlTable pkgs = do
  where
   formatPkg pkg = do
     hasapi    <- doesDirectoryExist apiDir
-    hasreadme <- doesFileExist readmefile
-    let readmeref = if hasreadme then [ehref readmefile [htxt "README"]]
-                                 else []
-        docref    = maybe [] (\r -> [href r [htxt "PDF"]]) (manualURL pkg)
+    let docref    = maybe [] (\r -> [href r [htxt "PDF"]]) (manualURL pkg)
     return
       [ [href (packageHtmlDir </> pkgid ++ ".html") [htxt $ name pkg]]
       , if hasapi then [ehref (cpmDocURL ++ pkgid) [htxt "API"]] else [nbsp]
@@ -247,7 +246,6 @@ packageInfosAsHtmlTable pkgs = do
    where
     pkgid      = packageId pkg
     apiDir     = "DOC" </> pkgid
-    readmefile = "DOC" </> pkgid </> "README.html"
 
 ------------------------------------------------------------------------------
 -- Generate HTML documentation of all packages in the central repository
@@ -274,10 +272,10 @@ generateDocsOfAllPackages packagedocdir = do
 
 ------------------------------------------------------------------------------
 -- Run `cypm test` on all packages of the central repository
-testAllPackages :: IO ()
-testAllPackages = do
+testAllPackages :: String -> IO ()
+testAllPackages statdir = do
   (_,_,allpkgs) <- getAllPackageSpecs True
-  results <- mapIO checkoutAndTestPackage allpkgs
+  results <- mapIO (checkoutAndTestPackage statdir) allpkgs
   if sum (map fst results) == 0
     then putStrLn $ show (length allpkgs) ++ " PACKAGES SUCCESSFULLY TESTED!"
     else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
@@ -332,7 +330,7 @@ addNewPackage withtag = do
       pkgInstallDir    = packageInstallDir config </> packageId pkg
   fromErrorLogger $ addPackageToRepository config "." False False
   putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
-  (ecode,_) <- checkoutAndTestPackage pkg
+  (ecode,_) <- checkoutAndTestPackage "" pkg
   when (ecode>0) $ do
     removeDirectoryComplete pkgRepositoryDir
     removeDirectoryComplete pkgInstallDir
@@ -345,35 +343,6 @@ addNewPackage withtag = do
              " && git add " ++ pkgIndexDir </> packageSpecFile ++
              " && git commit -m\"" ++ pkgIndexDir ++ " added\" " ++
              " && git push origin master && popd"
-
--- Test a specific version of a package by checking it out in temp dir,
--- install it (with a local bin dir), and run all tests.
--- Returns the exit code of the package test command and the packaged id.
-checkoutAndTestPackage :: Package -> IO (Int,String)
-checkoutAndTestPackage pkg = inEmptyTempDir $ do
-  let pkgname     = name pkg
-      pkgversion  = version pkg
-      pkgid       = packageId pkg
-  putStrLn $ unlines [dline, "Testing package: " ++ pkgid, dline]
-  -- create installation bin dir:
-  curdir <- getCurrentDirectory
-  let bindir = curdir </> "pkgbin"
-  recreateDirectory bindir
-  let checkoutdir = pkgname
-      cmd = unwords
-              [ "rm -rf", checkoutdir, "&&"
-              , "cypm", "checkout", pkgname, showVersion pkgversion, "&&"
-              , "cd", checkoutdir, "&&"
-              -- install possible binaries in bindir:
-              , "cypm", "-d bin_install_path=" ++ bindir, "install", "&&"
-              , "export PATH=" ++ bindir ++ ":$PATH", "&&"
-              , "cypm", "test", "&&"
-              , "cypm", "-d bin_install_path=" ++ bindir, "uninstall"
-              ]
-  putStrLn $ "...with command:\n" ++ cmd
-  ecode <- system cmd
-  when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '" ++ pkgid ++ "'!"
-  return (ecode,pkgid)
 
 -- Set the package version as a tag in the git repository.
 setTagInGit :: Package -> IO ()
@@ -388,6 +357,66 @@ setTagInGit pkg = do
   when (ecode > 0) $ error "ERROR in setting the git tag"
 
 ------------------------------------------------------------------------------
+-- Test a specific version of a package by checking it out in a temporary
+-- directory, install it (with a local bin dir), and run all tests.
+-- Returns the exit code of the package test command and the packaged id.
+checkoutAndTestPackage :: String -> Package -> IO (Int,String)
+checkoutAndTestPackage statdir pkg = inEmptyTempDir $ do
+  putStrLn $ unlines [dline, "Testing package: " ++ pkgid, dline]
+  -- create installation bin dir:
+  curdir <- getCurrentDirectory
+  let bindir = curdir </> "pkgbin"
+  recreateDirectory bindir
+  let pstatdir    = if null statdir then "" else statdir </> pkgid
+  unless (null pstatdir) $ recreateDirectory pstatdir
+  let checkoutdir = pkgname
+      cmd = unwords $
+              [ "rm -rf", checkoutdir, "&&"
+              , "cypm", "checkout", pkgname, showVersion pkgversion, "&&"
+              , "cd", checkoutdir, "&&"
+              -- install possible binaries in bindir:
+              , "cypm", "-d bin_install_path=" ++ bindir, "install", "&&"
+              , "export PATH=" ++ bindir ++ ":$PATH", "&&"
+              , "cypm", "test"] ++
+              (if null pstatdir then [] else ["-o", "statdir=" ++ pstatdir]) ++
+              [ "&&"
+              , "cypm", "-d bin_install_path=" ++ bindir, "uninstall"
+              ]
+  putStrLn $ "...with command:\n" ++ cmd
+  ecode <- system cmd
+  when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '" ++ pkgid ++ "'!"
+  unless (null pstatdir) $ processStats pstatdir
+  return (ecode,pkgid)
+ where
+  pkgname     = name pkg
+  pkgversion  = version pkg
+  pkgid       = packageId pkg
+
+  -- process the test statistics, i.e., combine them into one file.
+  processStats pstatdir = do
+    dcnts <- getDirectoryContents pstatdir
+    let csvfiles = filter (".csv" `isSuffixOf`) dcnts
+    catCSVStatFiles (map (pstatdir </>) csvfiles) (statdir </> pkgid ++ ".csv")
+    removeDirectoryComplete pstatdir
+
+-- Combine a non-empty list of statistics files produced by CurryCheck
+-- into one file by accumulating all numbers and modules.
+catCSVStatFiles :: [String] -> String -> IO ()
+catCSVStatFiles infiles outfile = do
+  stats <- mapM readStats infiles
+  let (nums,mods) = foldr1 addStats stats
+  header <- readCSVFile (head infiles) >>= return . head
+  writeCSVFile outfile [header, map show nums ++ [mods]]
+ where
+  readStats f = do
+    rows <- readCSVFile f
+    let [rc,total,unit,prop,eqv,io,mods] = rows !! 1
+    return (map (\s -> read s :: Int) [rc,total,unit,prop,eqv,io], mods)
+
+  addStats (nums1,mods1) (nums2,mods2) =
+    (map (uncurry (+)) (zip nums1 nums2), mods1 ++ " " ++ mods2)
+
+------------------------------------------------------------------------------
 -- Re-tag the current git version with the current package version
 -- and copy the package spec file to the cpm index
 updatePackage :: IO ()
@@ -398,7 +427,7 @@ updatePackage = do
   setTagInGit pkg
   putStrLn $ "Deleting old repo copy '" ++ pkgInstallDir ++ "'..."
   removeDirectoryComplete pkgInstallDir
-  (ecode,_) <- checkoutAndTestPackage pkg
+  (ecode,_) <- checkoutAndTestPackage "" pkg
   when (ecode > 0) $ do removeDirectoryComplete pkgInstallDir
                         putStrLn $ "ERROR in package, CPM index not updated!"
                         exitWith 1
@@ -547,7 +576,7 @@ leftTopMenu inpkg =
 --- The standard right top menu.
 rightTopMenu :: [[HtmlExp]]
 rightTopMenu =
-  [ curryHomeItem
+  [ [ehref curryHomeURL [extLinkIcon, htxt " Curry Homepage"]]
   --, [ehref (currySystemURL++"/lib/")
   --         [extLinkIcon, htxt $ " "++currySystem++" Libraries"]]
   --, [ehref (curryHomeURL ++ "/tools/currydoc")
@@ -566,22 +595,6 @@ curryDocFooter :: CalendarTime -> [HtmlExp]
 curryDocFooter time =
   [italic [htxt "Generated by cpm-manage at ",
            htxt (calendarTimeToString time)]]
-
-curryHomeItem :: [HtmlExp]
-curryHomeItem = [ehref curryHomeURL [extLinkIcon, htxt " Curry Homepage"]]
-
---- An anchored section in the document:
-anchoredSection :: String -> [HtmlExp] -> HtmlExp
-anchoredSection tag doc = section doc `addAttr` ("id",tag)
-
---- An anchored element in the document:
-anchored :: String -> [HtmlExp] -> HtmlExp
-anchored tag doc = style "anchored" doc `addAttr` ("id",tag)
-
---- An anchored element in the document:
-anchoredDiv :: String -> [HtmlExp] -> HtmlExp
-anchoredDiv tag doc = block doc `addAttr` ("class", "anchored")
-                                `addAttr` ("id",tag)
 
 --- A bordered headed table:
 borderedHeadedTable :: [[HtmlExp]] -> [[[HtmlExp]]] -> HtmlExp
