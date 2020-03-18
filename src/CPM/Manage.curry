@@ -11,7 +11,7 @@ module CPM.Manage ( main )
 import Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
                  , getAbsolutePath, getCurrentDirectory, getDirectoryContents )
 import FilePath  ( (</>), replaceExtension )
-import IOExts    ( evalCmd )
+import IOExts    ( evalCmd, readCompleteFile )
 import List      ( groupBy, intercalate, isSuffixOf, nub, sortBy, sum )
 import System    ( getArgs, exitWith, system )
 import Time      ( CalendarTime, calendarTimeToString
@@ -20,7 +20,7 @@ import Time      ( CalendarTime, calendarTimeToString
 import HTML.Base
 import HTML.Styles.Bootstrap3  ( bootstrapPage, glyphicon, homeIcon )
 import ShowDotGraph
-import Text.CSV                ( readCSVFile, writeCSVFile )
+import Text.CSV                ( readCSV, writeCSVFile )
 
 import CPM.Config              ( Config, repositoryDir, packageInstallDir
                                , readConfigurationWith )
@@ -395,8 +395,9 @@ checkoutAndTestPackage statdir pkg = inEmptyTempDir $ do
   -- process the test statistics, i.e., combine them into one file.
   processStats pstatdir = do
     dcnts <- getDirectoryContents pstatdir
-    let csvfiles = filter (".csv" `isSuffixOf`) dcnts
-    catCSVStatFiles (map (pstatdir </>) csvfiles) (statdir </> pkgid ++ ".csv")
+    let csvfiles = map (pstatdir </>) (filter (".csv" `isSuffixOf`) dcnts)
+    unless (null csvfiles) $
+      catCSVStatFiles csvfiles (statdir </> pkgid ++ ".csv")
     removeDirectoryComplete pstatdir
 
 -- Combine a non-empty list of statistics files produced by CurryCheck
@@ -404,17 +405,17 @@ checkoutAndTestPackage statdir pkg = inEmptyTempDir $ do
 catCSVStatFiles :: [String] -> String -> IO ()
 catCSVStatFiles infiles outfile = do
   stats <- mapM readStats infiles
-  let (nums,mods) = foldr1 addStats stats
-  header <- readCSVFile (head infiles) >>= return . head
+  let (header,nums,mods) = foldr1 addStats stats
   writeCSVFile outfile [header, map show nums ++ [mods]]
  where
   readStats f = do
-    rows <- readCSVFile f
+    rows <- readCompleteFile f >>= return . readCSV
     let [rc,total,unit,prop,eqv,io,mods] = rows !! 1
-    return (map (\s -> read s :: Int) [rc,total,unit,prop,eqv,io], mods)
+    return (rows !! 0,
+            map (\s -> read s :: Int) [rc,total,unit,prop,eqv,io], mods)
 
-  addStats (nums1,mods1) (nums2,mods2) =
-    (map (uncurry (+)) (zip nums1 nums2), mods1 ++ " " ++ mods2)
+  addStats (header,nums1,mods1) (_,nums2,mods2) =
+    (header, map (uncurry (+)) (zip nums1 nums2), mods1 ++ " " ++ mods2)
 
 ------------------------------------------------------------------------------
 -- Re-tag the current git version with the current package version
