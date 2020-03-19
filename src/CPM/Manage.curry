@@ -12,7 +12,7 @@ import Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
                  , getAbsolutePath, getCurrentDirectory, getDirectoryContents )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd, readCompleteFile )
-import List      ( groupBy, intercalate, isSuffixOf, nub, sortBy, sum )
+import List      ( groupBy, intercalate, init, isSuffixOf, nub, sortBy, sum )
 import System    ( getArgs, exitWith, system )
 import Time      ( CalendarTime, calendarTimeToString
                  , getLocalTime, toDayString )
@@ -186,6 +186,7 @@ writePackageIndexAsHTML cpmindexdir = do
     hasreadme  <- doesFileExist readmefile
     hasreadmei <- doesFileExist readmeifile
     readmei    <- if hasreadmei then readFile readmeifile else return ""
+    mbtested   <- getTestResults pkgid
     putStrLn $ "Writing '" ++ htmlfile ++ "'..."
     let metadata = renderPackageInfo True True True pkg
         apilinks = if hasapi
@@ -200,7 +201,10 @@ writePackageIndexAsHTML cpmindexdir = do
                       else []) ++ apilinks
     pagestring <-
       cpmPackagePage ("Curry Package '" ++ pname ++ "'")
-        metadata infomenu apilinks
+        metadata
+        infomenu
+        (maybe [] (\s -> [blockstyle "bg-success" [htxt s]]) mbtested)
+        apilinks
         (if hasreadmei then [HtmlText readmei] else [])
     writeReadableFile htmlfile pagestring
    where
@@ -210,6 +214,18 @@ writePackageIndexAsHTML cpmindexdir = do
     apiDir      = "DOC" </> pkgid
     readmefile  = apiDir </> "README.html"
     readmeifile = apiDir </> "README_I.html"
+
+  getTestResults pkgid = do
+    let testfile = "TEST" </> pkgid ++ ".csv"
+    hastests <- doesFileExist testfile
+    if hastests
+      then do
+        tinfos <- readCompleteFile testfile >>= return . readCSV
+        case tinfos of
+          [_, (_:ct:rc:_)] | rc == "0" -> return $ Just $
+                                            "Succesfully tested at " ++ ct
+          _                          -> return Nothing
+      else return Nothing
 
 --- Writes a file readable for all:
 writeReadableFile :: String -> String -> IO ()
@@ -394,28 +410,62 @@ checkoutAndTestPackage statdir pkg = inEmptyTempDir $ do
 
   -- process the test statistics, i.e., combine them into one file.
   processStats pstatdir = do
-    dcnts <- getDirectoryContents pstatdir
-    let csvfiles = map (pstatdir </>) (filter (".csv" `isSuffixOf`) dcnts)
-    unless (null csvfiles) $
-      catCSVStatFiles csvfiles (statdir </> pkgid ++ ".csv")
+    catCSVStatsOfPkg pkgid pstatdir (statdir </> pkgid ++ ".csv")
     removeDirectoryComplete pstatdir
 
--- Combine a non-empty list of statistics files produced by CurryCheck
--- into one file by accumulating all numbers and modules.
-catCSVStatFiles :: [String] -> String -> IO ()
-catCSVStatFiles infiles outfile = do
-  stats <- mapM readStats infiles
-  let (header,nums,mods) = foldr1 addStats stats
-  writeCSVFile outfile [header, map show nums ++ [mods]]
+-- Combine all CSV statistics files (produced by CurryCheck for a package)
+-- contained in a directory into one file by accumulating all numbers
+-- and modules.
+catCSVStatsOfPkg :: String -> String -> String -> IO ()
+catCSVStatsOfPkg pkgid csvdir outfile = do
+  ltime <- getLocalTime
+  combineCSVFilesInDir readStats (showStats (calendarTimeToString ltime))
+                       addStats csvdir outfile
  where
-  readStats f = do
-    rows <- readCompleteFile f >>= return . readCSV
+  readStats rows =
     let [rc,total,unit,prop,eqv,io,mods] = rows !! 1
-    return (rows !! 0,
-            map (\s -> read s :: Int) [rc,total,unit,prop,eqv,io], mods)
+    in (rows !! 0, map (\s -> read s :: Int) [rc,total,unit,prop,eqv,io], mods)
+
+  showStats ct (header,nums,mods) =
+    ["Package" : "Check time" : header, pkgid : ct : map show nums ++ [mods]]
 
   addStats (header,nums1,mods1) (_,nums2,mods2) =
     (header, map (uncurry (+)) (zip nums1 nums2), mods1 ++ " " ++ mods2)
+
+-- Combine all CSV statistics files for packages (produced by
+-- `catCSVStatsOfPkg`) contained in a directory into a result file
+-- and sum up the results.
+sumCSVStatsOfPkgs :: String -> String -> IO ()
+sumCSVStatsOfPkgs = combineCSVFilesInDir readStats showResult addStats
+ where
+  readStats rows =
+    let [pkgid,ct,rc,total,unit,prop,eqv,io,_] = rows !! 1
+    in (rows !! 0,
+        [ (pkgid, ct, map (\s -> read s :: Int) [rc,total,unit,prop,eqv,io]) ])
+
+  showResult (header,rows) =
+    init header :
+    sortBy (<=) (map (\ (pkgid,ct,nums) -> pkgid : ct : map show nums) rows) ++
+    ["TOTAL" :
+      map show
+          (foldr1 (\nums1 nums2 -> map (uncurry (+)) (zip nums1 nums2))
+                  (map (\ (_,_,ns) -> ns) rows))]
+
+  addStats (header,rows1) (_,rows2) = (header, rows1 ++ rows2)
+
+-- Combine all CSV files contained in a directory into one result CSV file
+-- according to an operation to read each CSV file and an operation
+-- to combine the results.
+combineCSVFilesInDir :: ([[String]] -> a) -> (a -> [[String]]) -> (a -> a -> a)
+                     -> String -> String -> IO ()
+combineCSVFilesInDir fromcsv tocsv combine statdir outfile = do
+  dcnts <- getDirectoryContents statdir
+  let csvfiles = map (statdir </>) (filter (".csv" `isSuffixOf`) dcnts)
+  unless (null csvfiles) $ do
+    stats <- mapM (\f -> readCompleteFile f >>= return . fromcsv . readCSV)
+                  csvfiles
+    let results = foldr1 combine stats
+    writeCSVFile outfile (tocsv results)
 
 ------------------------------------------------------------------------------
 -- Re-tag the current git version with the current package version
@@ -530,9 +580,9 @@ cpmIndexPage title htmltitle maindoc = do
                   rightTopMenu 0 [] htmltitle maindoc (curryDocFooter time)
 
 --- Standard HTML page for generated package descriptions.
-cpmPackagePage :: String -> String -> [[HtmlExp]] -> [[HtmlExp]] -> [HtmlExp]
-               -> IO String
-cpmPackagePage title metadata sidemenu apilinks maindoc = do
+cpmPackagePage :: String -> String -> [[HtmlExp]] -> [HtmlExp] -> [[HtmlExp]]
+               -> [HtmlExp] -> IO String
+cpmPackagePage title metadata sidemenu infos apilinks maindoc = do
   let htmltitle = [h1 [htxt title]]
   time <- getLocalTime
   return $ showHtmlPage $
@@ -544,7 +594,7 @@ cpmPackagePage title metadata sidemenu apilinks maindoc = do
     [ bold [htxt "Package metadata:"], verbatim metadata
     , bold [htxt "Further infos:"]
     , ulist sidemenu `addClass` "nav nav-sidebar"
-    ]
+    ] ++ infos
 
 
 --- The URL of the Curry homepage
