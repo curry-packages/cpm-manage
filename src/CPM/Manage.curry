@@ -41,6 +41,13 @@ import CPM.Resolution          ( isCompatibleToCompiler )
 ------------------------------------------------------------------------------
 -- Some global settings:
 
+-- Banner of this tool:
+banner :: String
+banner = unlines [bannerLine,bannerText,bannerLine]
+ where
+  bannerText = "cpm-manage (version of 19/03/2020)"
+  bannerLine = take (length bannerText) (repeat '-')
+
 --- Base URL of CPM documentations
 cpmDocURL :: String
 cpmDocURL = "https://www-ps.informatik.uni-kiel.de/~cpm/DOC/"
@@ -83,15 +90,14 @@ main = do
     ["writedeps"]   -> writeAllPackageDependencies
     ["copydocs"]    -> copyPackageDocumentations packageDocDir
     ["copydocs",d]  -> getAbsolutePath d >>= copyPackageDocumentations
-    ["--help"]      -> getHelpText >>= putStrLn
-    ["-h"]          -> getHelpText >>= putStrLn
+    ["--help"]      -> putStrLn helpText
+    ["-h"]          -> putStrLn helpText
     _               -> do putStrLn $ "Wrong arguments!\n"
-                          getHelpText >>= putStrLn
+                          putStrLn helpText
                           exitWith 1
 
-getHelpText :: IO String
-getHelpText = do
-  return $ unlines $
+helpText :: String
+helpText = banner ++ unlines
     [ "Options:", ""
     , "add           : add this package version to the central repository"
     , "                and tag git repository of this package with its version"
