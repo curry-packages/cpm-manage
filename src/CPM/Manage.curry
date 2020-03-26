@@ -12,7 +12,7 @@ import Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
                  , getAbsolutePath, getCurrentDirectory, getDirectoryContents )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd, readCompleteFile )
-import List      ( groupBy, intercalate, init, isSuffixOf, nub, sortBy, sum )
+import List      ( groupBy, intercalate, isSuffixOf, nub, sortBy, sum )
 import System    ( getArgs, exitWith, system )
 import Time      ( CalendarTime, calendarTimeToString
                  , getLocalTime, toDayString )
@@ -35,7 +35,7 @@ import CPM.Package.Helpers     ( renderPackageInfo )
 import CPM.Repository          ( allPackages, listPackages
                                , readPackageFromRepository )
 import CPM.Repository.Update   ( addPackageToRepository, updateRepository )
-import CPM.Repository.Select   ( getBaseRepository )
+import CPM.Repository.Select   ( getBaseRepository, getPackageVersion )
 import CPM.Resolution          ( isCompatibleToCompiler )
 
 ------------------------------------------------------------------------------
@@ -45,7 +45,7 @@ import CPM.Resolution          ( isCompatibleToCompiler )
 banner :: String
 banner = unlines [bannerLine,bannerText,bannerLine]
  where
-  bannerText = "cpm-manage (version of 19/03/2020)"
+  bannerText = "cpm-manage (version of 26/03/2020)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Base URL of CPM documentations
@@ -75,26 +75,29 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
-    ["genhtml"]     -> writePackageIndexAsHTML "CPM"
-    ["genhtml",d]   -> writePackageIndexAsHTML d
-    ["gendocs"]     -> generateDocsOfAllPackages packageDocDir
-    ["gendocs",d]   -> getAbsolutePath d >>= generateDocsOfAllPackages
-    ["gentar"]      -> genTarOfAllPackages packageTarDir
-    ["gentar",d]    -> getAbsolutePath d >>= genTarOfAllPackages
-    ["testall"]     -> testAllPackages ""
-    ["testall",d]   -> getAbsolutePath d >>= testAllPackages
-    ["add"]         -> addNewPackage True
-    ["addnotag"]    -> addNewPackage False
-    ["update"]      -> updatePackage
-    ["showgraph"]   -> showAllPackageDependencies
-    ["writedeps"]   -> writeAllPackageDependencies
-    ["copydocs"]    -> copyPackageDocumentations packageDocDir
-    ["copydocs",d]  -> getAbsolutePath d >>= copyPackageDocumentations
-    ["--help"]      -> putStrLn helpText
-    ["-h"]          -> putStrLn helpText
-    _               -> do putStrLn $ "Wrong arguments!\n"
-                          putStrLn helpText
-                          exitWith 1
+    ["genhtml"]       -> writePackageIndexAsHTML "CPM"
+    ["genhtml",d]     -> writePackageIndexAsHTML d
+    ["genhtml",d,p,v] -> writePackageVersionAsHTML d p v
+    ["gendocs"]       -> generateDocsOfAllPackages packageDocDir
+    ["gendocs",d]     -> getAbsolutePath d >>= generateDocsOfAllPackages
+    ["gentar"]        -> genTarOfAllPackages packageTarDir
+    ["gentar",d]      -> getAbsolutePath d >>= genTarOfAllPackages
+    ["testall"]       -> testAllPackages ""
+    ["testall",d]     -> getAbsolutePath d >>= testAllPackages
+    ["sumcsv",d]      -> do ad <- getAbsolutePath d
+                            sumCSVStatsOfPkgs ad "SUM.csv"
+    ["add"]           -> addNewPackage True
+    ["addnotag"]      -> addNewPackage False
+    ["update"]        -> updatePackage
+    ["showgraph"]     -> showAllPackageDependencies
+    ["writedeps"]     -> writeAllPackageDependencies
+    ["copydocs"]      -> copyPackageDocumentations packageDocDir
+    ["copydocs",d]    -> getAbsolutePath d >>= copyPackageDocumentations
+    ["--help"]        -> putStrLn helpText
+    ["-h"]            -> putStrLn helpText
+    _                 -> do putStrLn $ "Wrong arguments!\n"
+                            putStrLn helpText
+                            exitWith 1
 
 helpText :: String
 helpText = banner ++ unlines
@@ -107,12 +110,15 @@ helpText = banner ++ unlines
     , "                and update central index with current package specification"
     , "genhtml [<d>] : generate HTML pages of central repository into <d>"
     , "                (default: 'CPM')"
+    , "genhtml <d> <p> <v>: generate HTML pages for package <p> / version <v>"
+    , "                into directory <d>"
     , "gendocs [<d>] : generate HTML documentations of all packages into <d>"
     , "                (default: '" ++ packageDocDir ++ "')"
     , "gentar  [<d>] : generate tar.gz files of all packages into <d>"
     , "                (default: '" ++ packageTarDir ++ "')"
     , "testall [<d>] : test all packages of the central repository"
     , "                and write test statistics into directory <d>"
+    , "sumcsv  [<d>] : sum up all CSV package statistic files in <d>"
     , "showgraph     : visualize all package dependencies as dot graph"
     , "writedeps     : write all package dependencies as CSV file 'pkgs.csv'"
     , "copydocs [<d>]: copy latest package documentations"
@@ -186,52 +192,74 @@ writePackageIndexAsHTML cpmindexdir = do
     [h4 [htxt "Statistics:"],
      par [htxt $ show (length newestpkgs) ++ " packages", breakline,
           htxt $ show (length (concat allpkgversions)) ++ " package versions"]]
-         
-  writePackageAsHTML pkg = do
-    hasapi     <- doesDirectoryExist apiDir
-    hasreadme  <- doesFileExist readmefile
-    hasreadmei <- doesFileExist readmeifile
-    readmei    <- if hasreadmei then readFile readmeifile else return ""
-    mbtested   <- getTestResults pkgid
-    putStrLn $ "Writing '" ++ htmlfile ++ "'..."
-    let metadata = renderPackageInfo True True True pkg
-        apilinks = if hasapi
-                     then [[ehref (cpmDocURL ++ pkgid)
-                                  [htxt "API documentation"]]] ++
-                          maybe []
-                                (\mref -> [[href mref [htxt "Manual (PDF)"]]])
-                                (manualURL pkg)
-                     else []
-        infomenu = (if hasreadme
-                      then [[ehref ("../" ++ readmefile) [htxt "README"]]]
-                      else []) ++ apilinks
-    pagestring <-
-      cpmPackagePage ("Curry Package '" ++ pname ++ "'")
-        metadata
-        infomenu
-        (maybe [] (\s -> [blockstyle "bg-success" [htxt s]]) mbtested)
-        apilinks
-        (if hasreadmei then [HtmlText readmei] else [])
-    writeReadableFile htmlfile pagestring
-   where
-    pname       = name pkg
-    pkgid       = packageId pkg
-    htmlfile    = packageHtmlDir </> pkgid ++ ".html"
-    apiDir      = "DOC" </> pkgid
-    readmefile  = apiDir </> "README.html"
-    readmeifile = apiDir </> "README_I.html"
 
-  getTestResults pkgid = do
-    let testfile = "TEST" </> pkgid ++ ".csv"
-    hastests <- doesFileExist testfile
-    if hastests
-      then do
-        tinfos <- readCompleteFile testfile >>= return . readCSV
-        case tinfos of
-          [_, (_:ct:rc:_)] | rc == "0" -> return $ Just $
-                                            "Succesfully tested at " ++ ct
-          _                          -> return Nothing
-      else return Nothing
+writePackageVersionAsHTML :: String -> String -> String -> IO ()
+writePackageVersionAsHTML cpmindexdir pname pversion = do
+  case readVersion pversion of
+    Nothing -> error $ "'" ++ pversion ++ "' is not a valid version"
+    Just  v -> do
+      cfg <- readConfiguration
+      mbpkg <- getPackageVersion cfg pname v
+      case mbpkg of
+        Nothing ->
+          error $ "Package '" ++ pname ++ "-" ++ pversion ++ "' not found!"
+        Just pkg -> do
+          fullpkg <- fromErrorLogger $ readPackageFromRepository cfg pkg
+          createDirectoryIfMissing True cpmindexdir
+          putStrLn $ "Changing to directory '" ++ cpmindexdir ++ "'..."
+          inDirectory cpmindexdir $ do
+            createDirectoryIfMissing True packageHtmlDir
+            system $ "chmod 755 " ++ packageHtmlDir
+            writePackageAsHTML fullpkg
+
+writePackageAsHTML :: Package -> IO ()
+writePackageAsHTML pkg = do
+  hasapi     <- doesDirectoryExist apiDir
+  hasreadme  <- doesFileExist readmefile
+  hasreadmei <- doesFileExist readmeifile
+  readmei    <- if hasreadmei then readFile readmeifile else return ""
+  mbtested   <- getTestResults pkgid
+  putStrLn $ "Writing '" ++ htmlfile ++ "'..."
+  let metadata = renderPackageInfo True True True pkg
+      apilinks = if hasapi
+                   then [[ehref (cpmDocURL ++ pkgid)
+                                [htxt "API documentation"]]] ++
+                        maybe []
+                              (\mref -> [[href mref [htxt "Manual (PDF)"]]])
+                              (manualURL pkg)
+                   else []
+      infomenu = (if hasreadme
+                    then [[ehref ("../" ++ readmefile) [htxt "README"]]]
+                    else []) ++ apilinks
+  pagestring <-
+    cpmPackagePage ("Curry Package '" ++ pname ++ "'")
+      metadata
+      infomenu
+      (maybe [] (\s -> [blockstyle "bg-success" [htxt s]]) mbtested)
+      apilinks
+      (if hasreadmei then [HtmlText readmei] else [])
+  writeReadableFile htmlfile pagestring
+ where
+  pname       = name pkg
+  pkgid       = packageId pkg
+  htmlfile    = packageHtmlDir </> pkgid ++ ".html"
+  apiDir      = "DOC" </> pkgid
+  readmefile  = apiDir </> "README.html"
+  readmeifile = apiDir </> "README_I.html"
+
+-- Get some string describing a successful test.
+getTestResults :: String -> IO (Maybe String)
+getTestResults pkgid = do
+  let testfile = "TEST" </> pkgid ++ ".csv"
+  hastests <- doesFileExist testfile
+  if hastests
+    then do
+      tinfos <- readCompleteFile testfile >>= return . readCSV
+      case tinfos of
+        [_, (_:ct:rc:_)] | rc == "0" -> return $ Just $
+                                          "Succesfully tested at " ++ ct
+        _                          -> return Nothing
+    else return Nothing
 
 --- Writes a file readable for all:
 writeReadableFile :: String -> String -> IO ()
@@ -389,8 +417,8 @@ checkoutAndTestPackage statdir pkg = inEmptyTempDir $ do
   curdir <- getCurrentDirectory
   let bindir = curdir </> "pkgbin"
   recreateDirectory bindir
-  let pstatdir    = if null statdir then "" else statdir </> pkgid
-  unless (null pstatdir) $ recreateDirectory pstatdir
+  let statfile = if null statdir then "" else statdir </> pkgid ++ ".csv"
+  unless (null statdir) $ createDirectoryIfMissing True statdir
   let checkoutdir = pkgname
       cmd = unwords $
               [ "rm -rf", checkoutdir, "&&"
@@ -400,78 +428,59 @@ checkoutAndTestPackage statdir pkg = inEmptyTempDir $ do
               , "cypm", "-d bin_install_path=" ++ bindir, "install", "&&"
               , "export PATH=" ++ bindir ++ ":$PATH", "&&"
               , "cypm", "test"] ++
-              (if null pstatdir then [] else ["-o", "statdir=" ++ pstatdir]) ++
+              (if null statfile then [] else ["-f", statfile]) ++
               [ "&&"
               , "cypm", "-d bin_install_path=" ++ bindir, "uninstall"
               ]
   putStrLn $ "...with command:\n" ++ cmd
   ecode <- system cmd
   when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '" ++ pkgid ++ "'!"
-  unless (null pstatdir) $ processStats pstatdir
   return (ecode,pkgid)
  where
   pkgname     = name pkg
   pkgversion  = version pkg
   pkgid       = packageId pkg
 
-  -- process the test statistics, i.e., combine them into one file.
-  processStats pstatdir = do
-    catCSVStatsOfPkg pkgid pstatdir (statdir </> pkgid ++ ".csv")
-    removeDirectoryComplete pstatdir
-
--- Combine all CSV statistics files (produced by CurryCheck for a package)
--- contained in a directory into one file by accumulating all numbers
--- and modules.
-catCSVStatsOfPkg :: String -> String -> String -> IO ()
-catCSVStatsOfPkg pkgid csvdir outfile = do
-  ltime <- getLocalTime
-  combineCSVFilesInDir readStats (showStats (calendarTimeToString ltime))
-                       addStats csvdir outfile
- where
-  readStats rows =
-    let [rc,total,unit,prop,eqv,io,mods] = rows !! 1
-    in (rows !! 0, map (\s -> read s :: Int) [rc,total,unit,prop,eqv,io], mods)
-
-  showStats ct (header,nums,mods) =
-    ["Package" : "Check time" : header, pkgid : ct : map show nums ++ [mods]]
-
-  addStats (header,nums1,mods1) (_,nums2,mods2) =
-    (header, map (uncurry (+)) (zip nums1 nums2), mods1 ++ " " ++ mods2)
-
+------------------------------------------------------------------------------
 -- Combine all CSV statistics files for packages (produced by
--- `catCSVStatsOfPkg`) contained in a directory into a result file
+-- `cypm test -f ...`) contained in a directory into a result file
 -- and sum up the results.
 sumCSVStatsOfPkgs :: String -> String -> IO ()
-sumCSVStatsOfPkgs = combineCSVFilesInDir readStats showResult addStats
+sumCSVStatsOfPkgs dir outfile = do
+  combineCSVFilesInDir readStats showResult addStats ([],[]) dir outfile
+  putStrLn $ "All results written to file '" ++ outfile ++ "'."
  where
   readStats rows =
-    let [pkgid,ct,rc,total,unit,prop,eqv,io,_] = rows !! 1
+    let [pkgid,ct,rc,total,unit,prop,eqv,io,mods] = rows !! 1
     in (rows !! 0,
-        [ (pkgid, ct, map (\s -> read s :: Int) [rc,total,unit,prop,eqv,io]) ])
+        [ (pkgid, ct,
+           map (\s -> read s :: Int) [rc,total,unit,prop,eqv,io], mods) ])
 
   showResult (header,rows) =
-    init header :
-    sortBy (<=) (map (\ (pkgid,ct,nums) -> pkgid : ct : map show nums) rows) ++
-    ["TOTAL" :
+    header :
+    sortBy (<=)
+           (map (\(pkgid,ct,nums,mods) -> pkgid : ct : map show nums ++ [mods])
+                rows) ++
+    ["TOTAL:" : "" :
       map show
           (foldr1 (\nums1 nums2 -> map (uncurry (+)) (zip nums1 nums2))
-                  (map (\ (_,_,ns) -> ns) rows))]
+                  (map (\ (_,_,ns,_) -> ns) rows))]
 
   addStats (header,rows1) (_,rows2) = (header, rows1 ++ rows2)
 
 -- Combine all CSV files contained in a directory into one result CSV file
--- according to an operation to read each CSV file and an operation
--- to combine the results.
+-- according to an operation to read the contents of each CSV file,
+-- an operation to write the result into CSV format,
+-- an operation to combine the results, and a default value.
 combineCSVFilesInDir :: ([[String]] -> a) -> (a -> [[String]]) -> (a -> a -> a)
-                     -> String -> String -> IO ()
-combineCSVFilesInDir fromcsv tocsv combine statdir outfile = do
+                     -> a -> String -> String -> IO ()
+combineCSVFilesInDir fromcsv tocsv combine emptycsv statdir outfile = do
   dcnts <- getDirectoryContents statdir
   let csvfiles = map (statdir </>) (filter (".csv" `isSuffixOf`) dcnts)
-  unless (null csvfiles) $ do
-    stats <- mapM (\f -> readCompleteFile f >>= return . fromcsv . readCSV)
-                  csvfiles
-    let results = foldr1 combine stats
-    writeCSVFile outfile (tocsv results)
+  stats <- mapM (\f -> readCompleteFile f >>= return . fromcsv . readCSV)
+                csvfiles
+  let results = foldr combine emptycsv stats
+  writeCSVFile outfile (tocsv results)
 
 ------------------------------------------------------------------------------
 -- Re-tag the current git version with the current package version
