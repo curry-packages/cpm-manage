@@ -9,13 +9,15 @@
         "cpm"     : ">= 2.1.0",
         "csv"     : ">= 1.0.0",
         "graphviz": ">= 2.0.0",
-        "html"    : ">= 2.0.0"
+        "html2"   : ">= 0.0.1"
     },
     "compilerCompatibility": {
         "pakcs": ">= 2.0.0, < 3.0.0",
         "kics2": ">= 2.0.0, < 3.0.0"
     },
     "exportedModules": [ "CPM.Manage" ],
+    "license": "BSD-3-Clause",
+    "licenseFile": "LICENSE",
     "executable": {
         "name": "cpm-manage",
         "main": "CPM.Manage"
