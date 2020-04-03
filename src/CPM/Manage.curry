@@ -146,7 +146,7 @@ writePackageIndexAsHTML cpmindexdir = do
                     (map reverse
                        (sortBy (\pg1 pg2 -> name (head pg1) <= name (head pg2))
                                allpkgversions)))
-   writePackageIndex allvpkgs "index_versions.html" stats
+   writePackageIndex allvpkgs "indexv.html" stats
    writeCategoryIndexAsHTML allnpkgs
    mapIO_ (writePackageAsHTML allpkgversions newestpkgs) allvpkgs
  where

@@ -284,9 +284,9 @@ homeBrand = (cpmHomeURL, [homeIcon, nbsp, htxt "Curry Package Manager"])
 --- The standard left top menu.
 leftTopMenu :: Bool -> [[HtmlExp]]
 leftTopMenu inpkg =
-  [ [href (mainurl "index.html")          [htxt "All packages"]]
-  , [href (mainurl "index_versions.html") [htxt "All package versions"]]
-  , [href (mainurl "indexc.html")         [htxt "All categories"]]
+  [ [href (mainurl "index.html")  [htxt "All packages"]]
+  , [href (mainurl "indexv.html") [htxt "All package versions"]]
+  , [href (mainurl "indexc.html") [htxt "All categories"]]
   ]
  where
   mainurl u = if inpkg then ".." </> u else u
