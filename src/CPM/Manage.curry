@@ -12,22 +12,23 @@ import Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
                  , getAbsolutePath, getCurrentDirectory, getDirectoryContents )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd, readCompleteFile )
-import List      ( groupBy, intercalate, isSuffixOf, nub, nubBy, sortBy, sum )
+import List      ( groupBy, intercalate, isPrefixOf, isSuffixOf
+                 , nub, nubBy, partition, sortBy, sum )
 import System    ( getArgs, exitWith, system )
 import Time      ( CalendarTime, calendarTimeToString
                  , getLocalTime, toDayString )
 
 import HTML.Base
-import HTML.Styles.Bootstrap3  ( bootstrapPage, glyphicon, homeIcon )
+import HTML.Styles.Bootstrap4
 import ShowDotGraph
 import Text.CSV                ( readCSV, writeCSVFile )
 
 import CPM.Config              ( Config, repositoryDir, packageInstallDir
                                , readConfigurationWith )
 import CPM.ErrorLogger
-import CPM.FileUtil            ( copyDirectory, inDirectory, tempDir
+import CPM.FileUtil            ( copyDirectory, inDirectory, quote
                                , recreateDirectory
-                               , removeDirectoryComplete )
+                               , removeDirectoryComplete, tempDir )
 import CPM.Package
 import CPM.PackageCache.Global ( acquireAndInstallPackageFromSource
                                , checkoutPackage )
@@ -49,6 +50,8 @@ main = do
     ["genhtml"]       -> writePackageIndexAsHTML "CPM"
     ["genhtml",d]     -> writePackageIndexAsHTML d
     ["genhtml",d,p,v] -> writePackageVersionAsHTML d p v
+    ["genreadme"]     -> writeReadmeFiles "CPM"
+    ["genreadme",d]   -> writeReadmeFiles d
     ["gendocs"]       -> generateDocsOfAllPackages packageDocDir
     ["gendocs",d]     -> getAbsolutePath d >>= generateDocsOfAllPackages
     ["gentar"]        -> genTarOfAllPackages packageTarDir
@@ -83,6 +86,8 @@ helpText = banner ++ unlines
     , "                (default: 'CPM')"
     , "genhtml <d> <p> <v>: generate HTML pages for package <p> / version <v>"
     , "                into directory <d>"
+    , "genreadme [<d>]: generate README.html files of central repository into <d>"
+    , "                 (default: 'CPM') if they are not already present"
     , "gendocs [<d>] : generate HTML documentations of all packages into <d>"
     , "                (default: '" ++ packageDocDir ++ "')"
     , "gentar  [<d>] : generate tar.gz files of all packages into <d>"
@@ -128,6 +133,60 @@ getAllPackageSpecs compat = do
          else [head comppkgs]
 
 ------------------------------------------------------------------------------
+-- Generate README files used in the HTML index pages into the
+-- documentation directories if they are not already there.
+-- Thus, for each package p version v, do the following:
+-- If there is a README file in directory PACKAGES/p-v but not
+-- README.html in directory DOC/p-v, generate the latter by
+--     pandoc -s -t html -o ....
+writeReadmeFiles :: String -> IO ()
+writeReadmeFiles cpmindexdir = do
+  createDirectoryIfMissing True cpmindexdir
+  inDirectory cpmindexdir $ do
+    (config,allpkgversions,_) <- getAllPackageSpecs False
+    mapM_ genReadmeForPackage
+          (sortBy (\p1 p2 -> packageId p1 <= packageId p2)
+                  (concat allpkgversions))
+
+genReadmeForPackage :: Package -> IO ()
+genReadmeForPackage pkg = do
+  putStrLn $ "CHECKING PACKAGE: " ++ pkgid
+  rmfiles  <- getReadmeFiles pkgdir
+  rmexist  <- doesFileExist $ docdir </> "README.html"
+  if null rmfiles || rmexist
+    then unless rmexist $ putStrLn $ "No README file found"
+    else do
+      let readmefile = head rmfiles
+          formatcmd1 = formatCmd1 (pkgdir </> readmefile)
+          formatcmd2 = formatCmd2 (pkgdir </> readmefile)
+      createDirectoryIfMissing True docdir
+      putStrLn $ "Executing: " ++ formatcmd1
+      rc1 <- system formatcmd1
+      putStrLn $ "Executing: " ++ formatcmd2
+      rc2 <- system formatcmd2
+      if rc1 == 0 && rc2 == 0
+        then do
+          -- make them readable:
+          system $ unwords ["chmod -f 644 ", quote outfile1, quote outfile2]
+          done
+        else error $ "Error during execution of commands:\n" ++
+                     formatcmd1 ++ "\n" ++ formatcmd2
+ where
+  pkgid  = packageId pkg
+  pkgdir = "PACKAGES" </> pkgid
+  docdir = "DOC" </> pkgid
+    
+  getReadmeFiles dir = do
+    entries <- getDirectoryContents dir
+    return $ filter ("README" `isPrefixOf`) entries
+
+  outfile1 = docdir </> "README.html"
+  outfile2 = docdir </> "README_I.html"
+
+  formatCmd1 readme = "pandoc -s -t html -o " ++ outfile1 ++ " " ++ readme
+  formatCmd2 readme = "pandoc -t html -o " ++ outfile2 ++ " " ++ readme
+    
+------------------------------------------------------------------------------
 -- Generate main HTML index pages of the CPM repository.
 writePackageIndexAsHTML :: String -> IO ()
 writePackageIndexAsHTML cpmindexdir = do
@@ -138,27 +197,24 @@ writePackageIndexAsHTML cpmindexdir = do
    (config,allpkgversions,newestpkgs) <- getAllPackageSpecs False
    let stats = pkgStatistics allpkgversions newestpkgs
    putStrLn "Reading all package specifications..."
-   allnpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
+   allnpkgs <- mapM (fromErrorLogger . readPackageFromRepository config)
                      newestpkgs
-   writePackageIndex allnpkgs "index.html" stats
-   allvpkgs <- mapIO (fromErrorLogger . readPackageFromRepository config)
+   writePackageIndex allnpkgs "index.html" stats 0
+   allvpkgs <- mapM (fromErrorLogger . readPackageFromRepository config)
                  (concat
                     (map reverse
                        (sortBy (\pg1 pg2 -> name (head pg1) <= name (head pg2))
                                allpkgversions)))
-   writePackageIndex allvpkgs "indexv.html" stats
+   writePackageIndex allvpkgs "indexv.html" stats 1
    writeCategoryIndexAsHTML allnpkgs
-   mapIO_ (writePackageAsHTML allpkgversions newestpkgs) allvpkgs
+   mapM_ (writePackageAsHTML allpkgversions newestpkgs) allvpkgs
+   --mapM_ (writePackageAsHTML allpkgversions newestpkgs) $ take 3 allnpkgs
  where
-  writePackageIndex allpkgs indexfile statistics = do
-    ltime <- getLocalTime
+  writePackageIndex allpkgs indexfile statistics actindex = do
     putStrLn $ "Writing '" ++ indexfile ++ "'..."
     indextable <- packageInfosAsHtmlTable allpkgs
     let ptitle = "Curry Packages in the CPM Repository"
-    pagestring <-
-      cpmIndexPage ptitle [h1 [htxt ptitle]]
-        ([h2 [htxt $ "Version: " ++ toDayString ltime ++ ""], indextable] ++
-         statistics)
+    pagestring <- cpmIndexPage ptitle ([indextable] ++ statistics) actindex
     writeReadableFile indexfile pagestring
 
   pkgStatistics allpkgversions newestpkgs =
@@ -174,14 +230,16 @@ writeCategoryIndexAsHTML allpkgs = do
                                  filter (\p -> c `elem` category p) $ allpkgs))
                     allcats
   cattables <- mapM formatCat catpkgs
-  let catlinks = map (\ (c,_) -> hrefDfltSm ('#':c) [htxt c]) catpkgs
+  let catlinks = map (\ (c,_) -> hrefPrimBadge ('#':c) [htxt c]) catpkgs
       hcats = concatMap (\ (c,t) -> [anchor c [htxt ""], hrule, h1 [htxt c], t])
                         cattables
-      ptitle = "Curry Package Categories"
-  pagestring <- cpmIndexPage ptitle [h1 [htxt ptitle]]
+      ptitle = "Curry Packages by Category"
+  pagestring <- cpmIndexPage ptitle
                   (h2 [htxt "All package categories"] : par (hitems catlinks) :
-                   hcats)
-  writeReadableFile "indexc.html" pagestring
+                   hcats) 2
+  let catindexfile = "indexc.html"
+  putStrLn $ "Writing '" ++ catindexfile ++ "'..."
+  writeReadableFile catindexfile pagestring
  where
   pidEq p1 p2 = packageId p1 == packageId p2
 
@@ -192,12 +250,18 @@ writeCategoryIndexAsHTML allpkgs = do
     return (c, pstable)
 
 --- Standard HTML page for generated a package index.
-cpmIndexPage :: String -> [HtmlExp] -> [HtmlExp] -> IO String
-cpmIndexPage title htmltitle maindoc = do
+cpmIndexPage :: String -> [HtmlExp] -> Int -> IO String
+cpmIndexPage title maindoc actindex = do
   time <- getLocalTime
+  let dayversion = " (Version: " ++ toDayString time ++ ")"
+      btbase     = "bt4"
   return $ showHtmlPage $
-    bootstrapPage "bt3" cssIncludes title homeBrand (leftTopMenu False)
-                  rightTopMenu 0 [] htmltitle maindoc (curryDocFooter time)
+    bootstrapPage (favIcon btbase) (cssIncludes btbase) (jsIncludes btbase)
+                  title homeBrand
+                  (leftTopMenu False actindex)
+                  rightTopMenu 0 []
+                  [h1 [htxt title, smallMutedText dayversion]]
+                  maindoc (curryDocFooter time)
 
 --- Generate HTML page for a package in a given version into a directory.
 writePackageVersionAsHTML :: String -> String -> String -> IO ()
@@ -219,22 +283,27 @@ writePackageVersionAsHTML cpmindexdir pname pversion = do
             system $ "chmod 755 " ++ packageHtmlDir
             writePackageAsHTML allpkgs newestpkgs fullpkg
 
---- Write HTML page for a package.
+--- Write HTML pages for a single package.
 writePackageAsHTML :: [[Package]] -> [Package] -> Package -> IO ()
 writePackageAsHTML allpkgversions newestpkgs pkg = do
-  putStrLn $ "Writing '" ++ htmlfile ++ "'..."
   pagestring <- packageToHTML allpkgversions newestpkgs pkg
   inDirectory packageHtmlDir $ do
+    putStrLn $ "Writing '" ++ htmlfile ++ "'..."
     writeReadableFile htmlfile pagestring
+    putStrLn $ "Writing '" ++ htmlsrcfile ++ "'..."
+    srcdirstring <- directoryContentsPage (".." </> "PACKAGES") pkgid
+    writeReadableFile htmlsrcfile srcdirstring
     writeReadableFile metafile (renderPackageInfo True True True pkg)
     -- set symbolic link to recent package:
     system $ unwords
       ["/bin/rm", "-f", htmllink, "&&", "ln", "-s", htmlfile, htmllink]
     done
  where
-  htmlfile = packageId pkg ++ ".html"
-  htmllink = name pkg ++ ".html"
-  metafile = packageId pkg ++ ".txt"
+  pkgid       = packageId pkg
+  htmlfile    = pkgid ++ ".html"
+  htmlsrcfile = pkgid ++ "-src.html"
+  htmllink    = name pkg ++ ".html"
+  metafile    = pkgid ++ ".txt"
 
 --- Writes a file readable for all:
 writeReadableFile :: String -> String -> IO ()
@@ -252,14 +321,15 @@ packageInfosAsHtmlTable pkgs = do
   formatPkgAsRow :: Package -> IO [[HtmlExp]]
   formatPkgAsRow pkg = do
     hasapi    <- doesDirectoryExist apiDir
-    let docref    = maybe [] (\r -> [href r [htxt "PDF"]]) (manualURL pkg)
+    let docref = maybe [] (\r -> [hrefPrimBadge r [htxt "PDF"]]) (manualURL pkg)
     return
       [ [hrefPrimSmBlock (packageHtmlDir </> pkgid ++ ".html")
                          [htxt $ name pkg]]
-      , if hasapi then [ehref (cpmDocURL ++ pkgid) [htxt "API"]] else [nbsp]
+      , if hasapi then [ehrefPrimBadge (cpmDocURL ++ pkgid) [htxt "API doc"]]
+                  else [nbsp]
       , if hasapi then docref else [nbsp]
       , [maybe (htxt "")
-               (\ (PackageExecutable n _ _) -> kbd [htxt n])
+               (\ (PackageExecutable n _ _) -> kbdInput [htxt n])
                (executableSpec pkg)]
       , [htxt $ synopsis pkg]
       , [htxt $ showVersion (version pkg)] ]
@@ -272,7 +342,7 @@ packageInfosAsHtmlTable pkgs = do
 generateDocsOfAllPackages :: String -> IO ()
 generateDocsOfAllPackages packagedocdir = do
   (_,_,allpkgs) <- getAllPackageSpecs True
-  mapIO_ genDocOfPackage allpkgs
+  mapM_ genDocOfPackage allpkgs
  where
   genDocOfPackage pkg = inEmptyTempDir $ do
     let pname = name pkg
@@ -295,7 +365,7 @@ generateDocsOfAllPackages packagedocdir = do
 testAllPackages :: String -> IO ()
 testAllPackages statdir = do
   (_,_,allpkgs) <- getAllPackageSpecs True
-  results <- mapIO (checkoutAndTestPackage statdir) allpkgs
+  results <- mapM (checkoutAndTestPackage statdir) allpkgs
   if sum (map fst results) == 0
     then putStrLn $ show (length allpkgs) ++ " PACKAGES SUCCESSFULLY TESTED!"
     else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
@@ -313,10 +383,10 @@ genTarOfAllPackages tardir = do
   putStrLn $ "Generating tar.gz of all package versions in '" ++ tardir ++
              "'..."
   (cfg,allpkgversions,_) <- getAllPackageSpecs False
-  allpkgs <- mapIO (fromErrorLogger . readPackageFromRepository cfg)
+  allpkgs <- mapM (fromErrorLogger . readPackageFromRepository cfg)
                    (sortBy (\ps1 ps2 -> packageId ps1 <= packageId ps2)
                            (concat allpkgversions))
-  mapIO_ (writePackageAsTar cfg) allpkgs --(take 3 allpkgs)
+  mapM_ (writePackageAsTar cfg) allpkgs --(take 3 allpkgs)
  where
   writePackageAsTar cfg pkg = do
     let pkgname  = name pkg
@@ -513,7 +583,7 @@ copyPackageDocumentations packagedocdir = do
       pkgids = sortBy (\xs ys -> head xs <= head ys) (map (map packageId) pkgs)
   putStrLn $ "Number of package documentations: " ++ show (length pkgs)
   recreateDirectory currygleDocDir
-  mapIO_ copyPackageDoc pkgids
+  mapM_ copyPackageDoc pkgids
  where
   sortVersions ps = sortBy (\a b -> version a `vgt` version b) ps
 
@@ -554,5 +624,45 @@ inEmptyTempDir a = do
 -- The name of the package specification file.
 packageSpecFile :: String
 packageSpecFile = "package.json"
+
+------------------------------------------------------------------------------
+-- Generates a HTML representation of the contents of a directory.
+directoryContentsPage :: String -> String -> IO String
+directoryContentsPage base dir = do
+  time <- getLocalTime
+  maindoc <- directoryContentsAsHTML 1 base dir
+  let btbase = "../bt4"
+  return $ showHtmlPage $
+    bootstrapPage (favIcon btbase) (cssIncludes btbase) (jsIncludes btbase)
+      ("Browse " ++ dir) homeBrand
+      (leftTopMenu True (-1)) rightTopMenu 0 []
+      [h1 [smallMutedText "Contents of ", htxt dir]]
+      maindoc (curryDocFooter time)
+
+directoryContentsAsHTML :: Int -> String -> String -> IO [HtmlExp]
+directoryContentsAsHTML d base dir = do
+  exdir <- doesDirectoryExist basedir
+  if exdir
+    then do
+      dirfiles <- getDirectoryContents basedir >>= return . filter isReal
+      if null dirfiles
+        then return []
+        else do
+          ls <- mapM dirElemAsHTML (sortBy (<=) dirfiles)
+          let (files,dirs) = partition (\hes -> length hes == 1) ls
+          return [ulist (files ++ dirs) `addAttr` ("style","list-style: none")]
+    else return []
+ where
+  basedir = base </> dir
+
+  dirElemAsHTML df = do
+    isdir <- doesDirectoryExist (basedir </> df)
+    if isdir && (d < 10) -- to avoid very deep (infinite) dir trees
+      then do subdir <- directoryContentsAsHTML (d+1) basedir df
+              return [code [htxt (df ++ "/")], block subdir]
+      else return [code [href (basedir </> df)
+                              [htxt $ df ++ if isdir then "/" else ""]]]
+
+  isReal fn = not ("." `isPrefixOf` fn)
 
 ------------------------------------------------------------------------------

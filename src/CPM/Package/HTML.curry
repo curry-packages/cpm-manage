@@ -14,7 +14,7 @@ import List      ( find, intersperse, isPrefixOf, splitOn )
 import Time      ( CalendarTime, calendarTimeToString, getLocalTime )
 
 import HTML.Base
-import HTML.Styles.Bootstrap3  ( bootstrapPage, glyphicon, homeIcon )
+import HTML.Styles.Bootstrap4
 import Text.CSV                ( readCSV )
 
 import CPM.Package
@@ -32,41 +32,48 @@ packageToHTML allpkgversions newestpkgs pkg = do
   readmei    <- if hasreadmei then readFile readmeifile else return ""
   mbtested   <- getTestResults pkgid
   let apilinks = if hasapi
-                   then [[ehref (cpmDocURL ++ pkgid)
-                                [htxt "API documentation"]]] ++
+                   then [ehref (cpmDocURL ++ pkgid)
+                                  [htxt "API documentation"]] ++
                         maybe []
-                              (\mref -> [[href mref [htxt "Manual (PDF)"]]])
+                              (\mref -> [href mref [htxt "Manual (PDF)"]])
                               (manualURL pkg)
                    else []
       infomenu = (if hasreadme
-                    then [[ehref ("../" ++ readmefile) [htxt "README"]]]
+                    then [ehref ("../" ++ readmefile) [htxt "README"]]
                     else []) ++
-                 [[ehref (pkgid ++ ".txt") [htxt "Package specification"]]] ++
+                 [ehref (pkgid ++ ".txt") [htxt "Package specification"]] ++
                  apilinks
       mbdocurl = if hasapi then Just (cpmDocURL ++ pkgid) else Nothing
       sidenav =
-        [ dlist (map (\ (t,c) -> ([htxt t], c))
-                     (packageInfoAsHTML allpkgversions newestpkgs pkg mbdocurl))
-        , bold [htxt "Further infos:"]
-        , ulist infomenu `addClass` "nav nav-sidebar"
-        ] ++
-        (maybe [] (\s -> [blockstyle "label label-success" [htxt s]]) mbtested)
+        [ulistWithClass "list-group" "list-group-item"
+           (map (\ (t,c) -> (h5 [htxt t] : c))
+                (packageInfoAsHTML allpkgversions newestpkgs pkg mbdocurl ++
+                   [("Further infos:",
+                     [ulistWithClass "nav flex-column" "nav-item"
+                                     (map addNavLink infomenu)])]))] ++
+        (maybe [] (\s -> [blockstyle "badge badge-success" [htxt s]]) mbtested)
   let pkgdesc =  (if hasreadmei then [HtmlText readmei] else []) ++
                  [hrule,
                   h2 [htxt "Download"],
                   dlist (map (\ (l,hs) -> ([htxt (l++": ")],hs))
-                             (pkgtarref ++ showPkgSource pkg))
-                 ]
-  cpmPackagePage ("Curry Package '" ++ pname ++ "'") sidenav apilinks pkgdesc
+                             (pkgtarref ++ showPkgSource pkg))]
+  cpmPackagePage pname sidenav (map addNavLink apilinks) pkgdesc
  where
+  addNavLink h = [h `addClass` "nav-link"]
+
   pname       = name pkg
   pkgid       = packageId pkg
   apiDir      = "DOC" </> pkgid
   readmefile  = apiDir </> "README.html"
   readmeifile = apiDir </> "README_I.html"
   pkgtar      = pkgid ++ ".tar.gz"
-  pkgtarref   = [("CPM package source", 
-                  [ehref ("../PACKAGES" </> pkgtar) [htxt pkgtar]])]
+  pkgtarref   = [("Checkout with CPM",
+                  [kbdInput [htxt $ "cypm checkout " ++ pname ++ " " ++
+                                    showVersion (version pkg)]]),
+                 ("Package source", 
+                  [ehref (".." </> "PACKAGES" </> pkgtar) [htxt pkgtar],
+                   htxt " [", href (pkgid ++ "-src.html") [htxt "browse"],
+                   htxt "]"])]
 
 -- Get some string describing a successful test.
 getTestResults :: String -> IO (Maybe String)
@@ -122,17 +129,19 @@ packageInfoAsHTML allpkgversions newestpkgs pkg mbdocurl =
     xs -> [("Maintainer", vitems $ map htxt (concatMap (splitOn ",") xs))]
 
   cats =
-    if null (category pkg)
-      then []
-      else [("Category",
-             hitems $ map (\c -> hrefPrimXs ("../indexc.html#" ++ c) [htxt c])
-                          (category pkg))]
+    let cats = category pkg
+    in if null cats
+         then []
+         else [("Categor" ++ if length cats == 1 then "y" else "ies",
+                hitems $
+                   map (\c -> hrefPrimBadge ("../indexc.html#" ++ c) [htxt c])
+                       cats)]
 
   dep2html dep@(Dependency dp vcs) =
     maybe (htxt $ showDependency dep)
-          (\np -> hrefPrimXs (packageId np ++ ".html")
+          (\np -> hrefPrimBadge (packageId np ++ ".html")
                     [htxt dp, nbsp,
-                     textstyle "badge" (showVersionConstraints vcs)])
+                     showConstraintBadge (showVersionConstraints vcs)])
           (find (\p -> name p == dp) newestpkgs)
 
   compilers =
@@ -145,17 +154,17 @@ packageInfoAsHTML allpkgversions newestpkgs pkg mbdocurl =
     if null (exportedModules pkg)
       then []
       else [("Exported modules",
-             hitems $ map (\m -> code [maybe (htxt m)
-                                         (\u -> ehrefPrimXs (u </> m ++ ".html")
+             hitems $
+               map (\m -> code [maybe (htxt m)
+                                      (\u -> ehrefPrimBadge (u </> m ++ ".html")
                                                             [htxt m])
-                                         mbdocurl])
-                          (exportedModules pkg))]
+                                      mbdocurl])
+                   (exportedModules pkg))]
 
   executable =
     maybe []
           (\ (PackageExecutable n _ _) ->
-             [("Executable installed by package",
-               [nbsp, kbd [htxt n]])])
+             [("Executable installed by package", [kbdInput [htxt n]])])
           (executableSpec pkg)
 
   showLicense =
@@ -164,13 +173,13 @@ packageInfoAsHTML allpkgversions newestpkgs pkg mbdocurl =
                  Just s  -> [htxt s]
        lfile = case licenseFile pkg of
                  Nothing -> []
-                 Just f  -> [ehref ("../PACKAGES" </> packageId pkg </> f)
+                 Just f  -> [ehref (".." </> "PACKAGES" </> packageId pkg </> f)
                                    [htxt "License file"]]
-   in [("License", nbsp : intersperse (htxt " / ") (lkind ++ lfile))]
+   in [("License", intersperse (htxt " / ") (lkind ++ lfile))]
 
   showUrlField fgetter fname = case fgetter pkg of
     Nothing -> []
-    Just  s -> [(fname, [nbsp, showURL s])]
+    Just  s -> [(fname, [showURL s])]
 
   showParaField fgetter fname = case fgetter pkg of
     Nothing -> []
@@ -182,11 +191,11 @@ hitems = intersperse (htxt " ")
 
 --- Vertical placement of HTML expressions.
 vitems :: [HtmlExp] -> [HtmlExp]
-vitems = intersperse breakline . map (\x -> inline [nbsp,x])
+vitems = intersperse breakline
 
 showPkgVersion :: Package -> Version -> HtmlExp
 showPkgVersion pkg v =
-  (if version pkg == v then hrefPrimXs else hrefDfltXs)
+  (if version pkg == v then hrefPrimBadge else hrefScndBadge)
     (name pkg ++ "-" ++ vers ++ ".html") [htxt vers]
  where
   vers = showVersion v
@@ -200,54 +209,20 @@ showPkgSource pkg = case source pkg of
 showCompilerReq :: CompilerCompatibility -> HtmlExp
 showCompilerReq (CompilerCompatibility cc vcs)
   | cc == "pakcs"
-  = ehrefSuccXs pakcsURL
-          [htxt cc, nbsp, textstyle "badge" (showVersionConstraints vcs)]
+  = ehrefSuccBadge pakcsURL
+          [htxt cc, nbsp, showConstraintBadge (showVersionConstraints vcs)]
   | cc == "kics2"
-  = ehrefWarnXs kics2URL
-          [htxt cc, nbsp, textstyle "badge" (showVersionConstraints vcs)]
+  = ehrefWarnBadge kics2URL
+          [htxt cc, nbsp, showConstraintBadge (showVersionConstraints vcs)]
   | otherwise
-  = textstyle "label label-default" (cc ++ " " ++ showVersionConstraints vcs)
+  = textstyle "badge badge-secondary" (cc ++ " " ++ showVersionConstraints vcs)
+
+showConstraintBadge :: String -> HtmlExp
+showConstraintBadge = textstyle "badge badge-light" 
 
 showURL :: String -> HtmlExp
 showURL s | "http" `isPrefixOf` s = ehref s [htxt s]
           | otherwise             = htxt s
-
--- Hypertext reference rendered as an extra small primary button.
-hrefPrim :: String -> [HtmlExp] -> HtmlExp
-hrefPrim ref hexps = href ref hexps `addClass` "btn btn-primary"
-
--- Hypertext reference rendered as a small primary block button.
-hrefPrimSmBlock :: String -> [HtmlExp] -> HtmlExp
-hrefPrimSmBlock ref hexps =
-  href ref hexps `addClass` "btn btn-sm btn-primary btn-block"
-
--- Hypertext reference rendered as an extra small primary button.
-hrefPrimXs :: String -> [HtmlExp] -> HtmlExp
-hrefPrimXs ref hexps = href ref hexps `addClass` "btn btn-xs btn-primary"
-
--- Hypertext reference rendered as a small default button.
-hrefDfltSm :: String -> [HtmlExp] -> HtmlExp
-hrefDfltSm ref hexps = href ref hexps `addClass` "btn btn-sm btn-default"
-
--- Hypertext reference rendered as an extra small default button.
-hrefDfltXs :: String -> [HtmlExp] -> HtmlExp
-hrefDfltXs ref hexps = href ref hexps `addClass` "btn btn-xs btn-default"
-
--- External hypertext reference rendered as an extra small primary button.
-ehrefPrimXs :: String -> [HtmlExp] -> HtmlExp
-ehrefPrimXs ref hexps = ehref ref hexps `addClass` "btn btn-xs btn-primary"
-
--- External hypertext reference rendered as an extra small success button.
-ehrefSuccXs :: String -> [HtmlExp] -> HtmlExp
-ehrefSuccXs ref hexps = ehref ref hexps `addClass` "btn btn-xs btn-success"
-
--- External hypertext reference rendered as an extra small warning button.
-ehrefWarnXs :: String -> [HtmlExp] -> HtmlExp
-ehrefWarnXs ref hexps = ehref ref hexps `addClass` "btn btn-xs btn-warning"
-
--- Render as keyboard or user input.
-kbd :: [HtmlExp] -> HtmlExp
-kbd = HtmlStruct "kbd" []
 
 --------------------------------------------------------------------------
 -- Auxiliary operations to support generated HTML pages.
@@ -255,13 +230,19 @@ kbd = HtmlStruct "kbd" []
 --- Standard HTML page for generated package descriptions.
 cpmPackagePage :: String -> [HtmlExp] -> [[HtmlExp]] -> [HtmlExp] -> IO String
 cpmPackagePage title sidenav apilinks maindoc = do
-  let htmltitle = [h1 [htxt title]]
+  let htmltitle = [h1 [smallMutedText "Curry Package ", htxt title]]
   time <- getLocalTime
+  let btbase = "../bt4"
   return $ showHtmlPage $
-    bootstrapPage styleBaseURL cssIncludes title homeBrand
-                  (leftTopMenu True) (apilinks ++ rightTopMenu) 4 sidenav
+    bootstrapPage (favIcon btbase) (cssIncludes btbase) (jsIncludes btbase)
+                  title homeBrand
+                  (leftTopMenu True (-1)) (apilinks ++ rightTopMenu) 4 sidenav
                   htmltitle maindoc (curryDocFooter time)
 
+
+--- A small muted text (used in the title):
+smallMutedText :: String -> HtmlExp
+smallMutedText s = HtmlStruct "small" [("class","text-muted")] [htxt s]
 
 --- The URL of the Curry homepage
 curryHomeURL :: String
@@ -271,37 +252,43 @@ curryHomeURL = "http://www.curry-lang.org"
 cpmHomeURL :: String
 cpmHomeURL = "http://www.curry-lang.org/tools/cpm"
 
---- The URL of the base directory containing the styles, images, etc.
-styleBaseURL :: String
-styleBaseURL = "../bt3"
+-- The URL of the favicon relative to the base directory of BT4.
+favIcon :: String -> String
+favIcon btdir = btdir </> "img" </> "favicon.ico"
 
-cssIncludes :: [String]
-cssIncludes = ["bootstrap.min","cpm"]
+-- The CSS includes relative to the base directory of BT4.
+cssIncludes :: String -> [String]
+cssIncludes btdir =
+  map (\n -> btdir </> "css" </> n ++ ".css") ["bootstrap.min","cpm"]
+
+-- The JavaScript includes relative to the base directory of BT4.
+jsIncludes :: String -> [String]
+jsIncludes btdir =
+   ["https://code.jquery.com/jquery-3.4.1.slim.min.js",
+    btdir </> "js/bootstrap.bundle.min.js"]
 
 homeBrand :: (String,[HtmlExp])
-homeBrand = (cpmHomeURL, [homeIcon, nbsp, htxt "Curry Package Manager"])
+homeBrand = (cpmHomeURL, [htxt "Curry Package Repository"])
 
 --- The standard left top menu.
-leftTopMenu :: Bool -> [[HtmlExp]]
-leftTopMenu inpkg =
-  [ [href (mainurl "index.html")  [htxt "All packages"]]
-  , [href (mainurl "indexv.html") [htxt "All package versions"]]
-  , [href (mainurl "indexc.html") [htxt "All categories"]]
+--- The first argument is true if we are inside a package documentation.
+--- The second argument indicates the index of the active link
+--- (negative value = no active link)
+leftTopMenu :: Bool -> Int -> [[HtmlExp]]
+leftTopMenu inpkg actindex =
+  [ [mhref 0 "index.html"  "Packages"]
+  , [mhref 1 "indexv.html" "Versions"]
+  , [mhref 2 "indexc.html" "Categories"]
   ]
  where
-  mainurl u = if inpkg then ".." </> u else u
+  mhref i url txt = (if i == actindex then hrefNavActive else hrefNav)
+                       (if inpkg then ".." </> url else url) [htxt txt]
 
 --- The standard right top menu.
 rightTopMenu :: [[HtmlExp]]
 rightTopMenu =
-  [ [ehref curryHomeURL [extLinkIcon, htxt " Curry Homepage"]]
+  [ [ehrefNav curryHomeURL [htxt "Curry Homepage"]]
   ]
-
---------------------------------------------------------------------------
--- Icons:
-
-extLinkIcon :: HtmlExp
-extLinkIcon = glyphicon "new-window"
 
 --------------------------------------------------------------------------
 -- Standard footer information for generated web pages:
@@ -325,15 +312,13 @@ borderedHeadedTable headrow rows =
 headedTable :: [[HtmlExp]] -> [[[HtmlExp]]] -> HtmlExp
 headedTable headrow items =
   HtmlStruct "table" []
-    [HtmlStruct "thead" [] [toRow "th" headrow],
+    [HtmlStruct "thead" [("class","thead-light")] [toRow "th" headrow],
      HtmlStruct "tbody" [] (map (toRow "td") items)]
  where
   toRow ti row = HtmlStruct "tr" [] (map (\item -> HtmlStruct ti [] item) row)
 
---- An external reference
-ehref :: String -> [HtmlExp] -> HtmlExp
-ehref url desc = href url desc `addAttr` ("target","_blank")
-
 ------------------------------------------------------------------------------
 strip :: String -> String
 strip = reverse . dropWhile isSpace . reverse . dropWhile isSpace
+
+------------------------------------------------------------------------------
