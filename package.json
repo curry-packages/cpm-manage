@@ -6,7 +6,7 @@
     "category": [ "Packaging" ],
     "dependencies": {
         "base"    : ">= 1.0.0, < 2.0.0",
-        "cpm"     : ">= 2.1.0",
+        "cpm"     : ">= 2.2.0",
         "csv"     : ">= 1.0.0",
         "graphviz": ">= 2.0.0",
         "html2"   : ">= 0.0.1"

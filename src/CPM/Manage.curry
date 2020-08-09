@@ -320,22 +320,25 @@ packageInfosAsHtmlTable pkgs = do
  where
   formatPkgAsRow :: Package -> IO [[HtmlExp]]
   formatPkgAsRow pkg = do
-    hasapi    <- doesDirectoryExist apiDir
+    hasapidir <- doesDirectoryExist apiDir
+    hasapiidx <- doesFileExist $ apiDir </> indexhtml
     let docref = maybe [] (\r -> [hrefPrimBadge r [htxt "PDF"]]) (manualURL pkg)
     return
       [ [hrefPrimSmBlock (packageHtmlDir </> pkgid ++ ".html")
                          [htxt $ name pkg]]
-      , if hasapi then [ehrefPrimBadge (cpmDocURL ++ pkgid) [htxt "API doc"]]
-                  else [nbsp]
-      , if hasapi then docref else [nbsp]
+      , if hasapiidx then [ehrefPrimBadge (cpmDocURL ++ pkgid </> indexhtml)
+                                          [htxt "API doc"]]
+                     else [nbsp]
+      , if hasapidir then docref else [nbsp]
       , [maybe (htxt "")
                (\ (PackageExecutable n _ _) -> kbdInput [htxt n])
                (executableSpec pkg)]
       , [htxt $ synopsis pkg]
       , [htxt $ showVersion (version pkg)] ]
    where
-    pkgid  = packageId pkg
-    apiDir = "DOC" </> pkgid
+    pkgid     = packageId pkg
+    apiDir    = "DOC" </> pkgid
+    indexhtml = "index.html"
 
 ------------------------------------------------------------------------------
 -- Generate HTML documentation of all packages in the central repository
@@ -396,8 +399,9 @@ genTarOfAllPackages tardir = do
     putStrLn $ "Checking out '" ++ pkgid ++ "'..."
     let checkoutdir = pkgname
     system $ unwords [ "rm -rf", checkoutdir, pkgdir ]
-    fromErrorLogger
-      (acquireAndInstallPackageFromSource cfg pkg |> checkoutPackage cfg pkg)
+    fromErrorLogger $ fromELM $ do
+      toELM $ acquireAndInstallPackageFromSource cfg pkg
+      checkoutPackage cfg pkg
     let cmd = unwords [ "cd", checkoutdir, "&&"
                       , "tar", "cvzf", tarfile, ".", "&&"
                       , "chmod", "644", tarfile, "&&"
@@ -420,14 +424,14 @@ addNewPackage withtag = do
   let pkgIndexDir      = name pkg </> showVersion (version pkg)
       pkgRepositoryDir = repositoryDir config </> pkgIndexDir
       pkgInstallDir    = packageInstallDir config </> packageId pkg
-  fromErrorLogger $ addPackageToRepository config "." False False
+  fromErrorLogger $ fromELM $ addPackageToRepository config "." False False
   putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
   (ecode,_) <- checkoutAndTestPackage "" pkg
   when (ecode>0) $ do
     removeDirectoryComplete pkgRepositoryDir
     removeDirectoryComplete pkgInstallDir
     putStrLn "Checkout/test failure, package deleted in repository directory!"
-    updateRepository config True True False
+    fromELM $ updateRepository config True True False
     exitWith 1
   putStrLn $ "\nEverything looks fine..."
   putStrLn $ "\nTo publish the new repository directory, run command:\n"
@@ -539,7 +543,7 @@ updatePackage = do
   when (ecode > 0) $ do removeDirectoryComplete pkgInstallDir
                         putStrLn $ "ERROR in package, CPM index not updated!"
                         exitWith 1
-  fromErrorLogger $ addPackageToRepository config "." True False
+  fromErrorLogger $ fromELM $ addPackageToRepository config "." True False
 
 ------------------------------------------------------------------------------
 -- Show package dependencies as dot graph

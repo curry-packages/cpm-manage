@@ -26,24 +26,26 @@ import CPM.Manage.Config       ( cpmDocURL, kics2URL, pakcsURL )
 --- Generate HTML page string for a given package.
 packageToHTML :: [[Package]] -> [Package] -> Package -> IO String
 packageToHTML allpkgversions newestpkgs pkg = do
-  hasapi     <- doesDirectoryExist apiDir
+  hasapidir  <- doesDirectoryExist apiDir
+  hasaindex  <- doesFileExist $ apiDir </> indexhtml
   hasreadme  <- doesFileExist readmefile
   hasreadmei <- doesFileExist readmeifile
   readmei    <- if hasreadmei then readFile readmeifile else return ""
   mbtested   <- getTestResults pkgid
-  let apilinks = if hasapi
-                   then [ehref (cpmDocURL ++ pkgid)
-                                  [htxt "API documentation"]] ++
-                        maybe []
-                              (\mref -> [href mref [htxt "Manual (PDF)"]])
-                              (manualURL pkg)
-                   else []
+  let apilinks = (if hasaindex then [ehref (cpmDocURL ++ pkgid </> indexhtml)
+                                           [htxt "API documentation"]]
+                               else []) ++
+                 (if hasapidir
+                    then maybe []
+                               (\mref -> [href mref [htxt "Manual (PDF)"]])
+                               (manualURL pkg)
+                    else [])
       infomenu = (if hasreadme
                     then [ehref ("../" ++ readmefile) [htxt "README"]]
                     else []) ++
                  [ehref (pkgid ++ ".txt") [htxt "Package specification"]] ++
                  apilinks
-      mbdocurl = if hasapi then Just (cpmDocURL ++ pkgid) else Nothing
+      mbdocurl = if hasapidir then Just (cpmDocURL ++ pkgid) else Nothing
       sidenav =
         [ulistWithClass "list-group" "list-group-item"
            (map (\ (t,c) -> (h5 [htxt t] : c))
@@ -64,6 +66,7 @@ packageToHTML allpkgversions newestpkgs pkg = do
   pname       = name pkg
   pkgid       = packageId pkg
   apiDir      = "DOC" </> pkgid
+  indexhtml   = "index.html"
   readmefile  = apiDir </> "README.html"
   readmeifile = apiDir </> "README_I.html"
   pkgtar      = pkgid ++ ".tar.gz"
