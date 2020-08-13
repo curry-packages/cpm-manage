@@ -431,7 +431,7 @@ addNewPackage withtag = do
     removeDirectoryComplete pkgRepositoryDir
     removeDirectoryComplete pkgInstallDir
     putStrLn "Checkout/test failure, package deleted in repository directory!"
-    fromELM $ updateRepository config True True False
+    fromELM $ updateRepository config True True True False
     exitWith 1
   putStrLn $ "\nEverything looks fine..."
   putStrLn $ "\nTo publish the new repository directory, run command:\n"
