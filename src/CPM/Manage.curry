@@ -15,8 +15,7 @@ import IOExts    ( evalCmd, readCompleteFile )
 import List      ( groupBy, intercalate, isPrefixOf, isSuffixOf
                  , nub, nubBy, partition, sortBy, sum )
 import System    ( getArgs, exitWith, system )
-import Time      ( CalendarTime, calendarTimeToString
-                 , getLocalTime, toDayString )
+import Time      ( CalendarTime, getLocalTime, toDayString )
 
 import HTML.Base
 import HTML.Styles.Bootstrap4
