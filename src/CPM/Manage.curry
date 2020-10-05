@@ -212,8 +212,15 @@ writePackageIndexAsHTML cpmindexdir = do
   writePackageIndex allpkgs indexfile statistics actindex = do
     putStrLn $ "Writing '" ++ indexfile ++ "'..."
     indextable <- packageInfosAsHtmlTable allpkgs
-    let ptitle = "Curry Packages in the CPM Repository"
-    pagestring <- cpmIndexPage ptitle ([indextable] ++ statistics) actindex
+    let ptitle   = "Curry Packages in the CPM Repository"
+        pkglinks = map (\p -> hrefPrimBadge
+                                (packageHtmlDir </> packageId p ++ ".html")
+                                [htxt $ if actindex==0 then name p
+                                                       else packageId p])
+                       allpkgs
+        pindex   = [h2 [htxt "Package index:"], par (hitems pkglinks)]
+    pagestring <- cpmIndexPage ptitle (pindex ++ [indextable] ++ statistics)
+                               actindex
     writeReadableFile indexfile pagestring
 
   pkgStatistics allpkgversions newestpkgs =
@@ -234,7 +241,7 @@ writeCategoryIndexAsHTML allpkgs = do
                         cattables
       ptitle = "Curry Packages by Category"
   pagestring <- cpmIndexPage ptitle
-                  (h2 [htxt "All package categories"] : par (hitems catlinks) :
+                  (h2 [htxt "Category index:"] : par (hitems catlinks) :
                    hcats) 2
   let catindexfile = "indexc.html"
   putStrLn $ "Writing '" ++ catindexfile ++ "'..."
@@ -249,7 +256,7 @@ writeCategoryIndexAsHTML allpkgs = do
     return (c, pstable)
 
 --- Standard HTML page for generated a package index.
-cpmIndexPage :: String -> [HtmlExp] -> Int -> IO String
+cpmIndexPage :: String -> [BaseHtml] -> Int -> IO String
 cpmIndexPage title maindoc actindex = do
   time <- getLocalTime
   let dayversion = " (Version: " ++ toDayString time ++ ")"
@@ -309,7 +316,7 @@ writeReadableFile :: String -> String -> IO ()
 writeReadableFile f s = writeFile f s >> system ("chmod 644 " ++ f) >> done
 
 -- Format a list of packages as an HTML table
-packageInfosAsHtmlTable :: [Package] -> IO HtmlExp
+packageInfosAsHtmlTable :: [Package] -> IO BaseHtml
 packageInfosAsHtmlTable pkgs = do
   rows <- mapM formatPkgAsRow pkgs
   return $ borderedHeadedTable
@@ -317,7 +324,7 @@ packageInfosAsHtmlTable pkgs = do
          ["Name", "API", "Doc","Executable","Synopsis", "Version"])
     rows
  where
-  formatPkgAsRow :: Package -> IO [[HtmlExp]]
+  formatPkgAsRow :: Package -> IO [[BaseHtml]]
   formatPkgAsRow pkg = do
     hasapidir <- doesDirectoryExist apiDir
     hasapiidx <- doesFileExist $ apiDir </> indexhtml
@@ -642,7 +649,7 @@ directoryContentsPage base dir = do
       [h1 [smallMutedText "Contents of ", htxt dir]]
       maindoc (curryDocFooter time)
 
-directoryContentsAsHTML :: Int -> String -> String -> IO [HtmlExp]
+directoryContentsAsHTML :: Int -> String -> String -> IO [BaseHtml]
 directoryContentsAsHTML d base dir = do
   exdir <- doesDirectoryExist basedir
   if exdir

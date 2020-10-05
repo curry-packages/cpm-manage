@@ -14,7 +14,7 @@ import FilePath  ( (</>) )
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (version of 09/08/2020)"
+  bannerText = "cpm-manage (version of 05/10/2020)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Base URL of CPM documentations
