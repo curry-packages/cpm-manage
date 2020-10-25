@@ -9,12 +9,13 @@ module CPM.Manage ( main )
   where
 
 import Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
-                 , getAbsolutePath, getCurrentDirectory, getDirectoryContents )
+                 , getAbsolutePath, getCurrentDirectory, getDirectoryContents
+                 , getTemporaryDirectory )
 import FilePath  ( (</>), replaceExtension )
 import IOExts    ( evalCmd, readCompleteFile )
 import List      ( groupBy, intercalate, isPrefixOf, isSuffixOf
                  , nub, nubBy, partition, sortBy, sum )
-import System    ( getArgs, exitWith, system )
+import System    ( getArgs, getPID, exitWith, system )
 import Time      ( CalendarTime, getLocalTime, toDayString )
 
 import HTML.Base
@@ -27,7 +28,7 @@ import CPM.Config              ( Config, repositoryDir, packageInstallDir
 import CPM.ErrorLogger
 import CPM.FileUtil            ( copyDirectory, inDirectory, quote
                                , recreateDirectory
-                               , removeDirectoryComplete, tempDir )
+                               , removeDirectoryComplete )
 import CPM.Package
 import CPM.PackageCache.Global ( acquireAndInstallPackageFromSource
                                , checkoutPackage )
@@ -624,11 +625,24 @@ readConfiguration =
 --- is deleted.
 inEmptyTempDir :: IO a -> IO a
 inEmptyTempDir a = do
-  tmp <- tempDir
-  recreateDirectory tmp
+  tmp <- newTempDir
+  createDirectoryIfMissing True tmp
   r  <- inDirectory tmp a
   removeDirectoryComplete tmp
   return r
+
+--- Returns a new temporary directory.
+newTempDir :: IO String
+newTempDir = do
+  t   <- getTemporaryDirectory
+  pid <- getPID
+  getNewDir (t </> "cpm" ++ show pid) 0
+ where
+  getNewDir base i = do
+    let tmpdir = base ++ show i
+    exdir <- doesDirectoryExist tmpdir
+    if exdir then getNewDir base (i+1)
+             else return tmpdir
 
 ------------------------------------------------------------------------------
 -- The name of the package specification file.
