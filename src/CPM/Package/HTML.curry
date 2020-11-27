@@ -6,16 +6,16 @@
 module CPM.Package.HTML
   where
 
-import Char      ( isSpace )
-import Directory ( doesDirectoryExist, doesFileExist )
-import FilePath  ( (</>), replaceExtension )
-import IOExts    ( readCompleteFile )
-import List      ( find, intersperse, isPrefixOf, splitOn )
-import Time      ( CalendarTime, calendarTimeToString, getLocalTime )
+import Data.Char        ( isSpace )
+import Data.List        ( find, intersperse, isPrefixOf, splitOn )
 
+import Data.Time        ( CalendarTime, calendarTimeToString, getLocalTime )
 import HTML.Base
 import HTML.Styles.Bootstrap4
-import Text.CSV                ( readCSV )
+import System.Directory ( doesDirectoryExist, doesFileExist )
+import System.FilePath  ( (</>), replaceExtension )
+import System.IOExts    ( readCompleteFile )
+import Text.CSV         ( readCSV )
 
 import CPM.Package
 import CPM.Package.Helpers     ( renderPackageInfo )
@@ -24,8 +24,8 @@ import CPM.Manage.Config       ( cpmDocURL, kics2URL, pakcsURL )
 
 ------------------------------------------------------------------------------
 --- Generate HTML page string for a given package.
-packageToHTML :: [[Package]] -> [Package] -> Package -> IO String
-packageToHTML allpkgversions newestpkgs pkg = do
+packageToHTML :: [[Package]] -> Package -> IO String
+packageToHTML allpkgversions pkg = do
   hasapidir  <- doesDirectoryExist apiDir
   hasaindex  <- doesFileExist $ apiDir </> indexhtml
   hasreadme  <- doesFileExist readmefile
@@ -49,7 +49,7 @@ packageToHTML allpkgversions newestpkgs pkg = do
       sidenav =
         [ulistWithClass "list-group" "list-group-item"
            (map (\ (t,c) -> (h5 [htxt t] : c))
-                (packageInfoAsHTML allpkgversions newestpkgs pkg mbdocurl ++
+                (packageInfoAsHTML allpkgversions pkg mbdocurl ++
                    [("Further infos:",
                      [ulistWithClass "nav flex-column" "nav-item"
                                      (map addNavLink infomenu)])]))] ++
@@ -101,9 +101,9 @@ manualURL pkg = case documentation pkg of
 
 ------------------------------------------------------------------------------
 --- Renders information about a package as HTML description list.
-packageInfoAsHTML :: [[Package]] -> [Package] -> Package -> Maybe String
+packageInfoAsHTML :: [[Package]] -> Package -> Maybe String
                   -> [(String,[BaseHtml])]
-packageInfoAsHTML allpkgversions newestpkgs pkg mbdocurl =
+packageInfoAsHTML allpkgversions pkg mbdocurl =
   [ ("Synopsis", [ htxt (synopsis pkg) ]) ] ++
   cats ++
   [ ("Versions", hitems $ map (showPkgVersion pkg) pkgversions)
@@ -132,20 +132,21 @@ packageInfoAsHTML allpkgversions newestpkgs pkg mbdocurl =
     xs -> [("Maintainer", vitems $ map htxt (concatMap (splitOn ",") xs))]
 
   cats =
-    let cats = category pkg
-    in if null cats
+    let pcats = category pkg
+    in if null pcats
          then []
-         else [("Categor" ++ if length cats == 1 then "y" else "ies",
+         else [("Categor" ++ if length pcats == 1 then "y" else "ies",
                 hitems $
                    map (\c -> hrefPrimBadge ("../indexc.html#" ++ c) [htxt c])
-                       cats)]
+                       pcats)]
 
   dep2html dep@(Dependency dp vcs) =
     maybe (htxt $ showDependency dep)
-          (\np -> hrefPrimBadge (packageId np ++ ".html")
-                    [htxt dp, nbsp,
-                     showConstraintBadge (showVersionConstraints vcs)])
-          (find (\p -> name p == dp) newestpkgs)
+          (\nps -> hrefPrimBadge (packageId (head nps) ++ ".html")
+                     [htxt dp, nbsp,
+                      showConstraintBadge (showVersionConstraints vcs)])
+          (find (\pgs -> not (null pgs) && name (head pgs) == dp)
+                allpkgversions)
 
   compilers =
     if null (compilerCompatibility pkg)

@@ -8,23 +8,25 @@
 module CPM.Manage ( main )
   where
 
-import Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
-                 , getAbsolutePath, getCurrentDirectory, getDirectoryContents
-                 , getTemporaryDirectory )
-import FilePath  ( (</>), replaceExtension )
-import IOExts    ( evalCmd, readCompleteFile )
-import List      ( groupBy, intercalate, isPrefixOf, isSuffixOf
-                 , nub, nubBy, partition, sortBy, sum )
-import System    ( getArgs, getPID, exitWith, system )
-import Time      ( CalendarTime, getLocalTime, toDayString )
+import Control.Monad      ( when, unless )
+import Data.List          ( groupBy, isPrefixOf, isSuffixOf
+                          , nub, nubBy, partition, sortBy, sum )
 
+import Data.Time          ( CalendarTime, getLocalTime, toDayString )
 import HTML.Base
 import HTML.Styles.Bootstrap4
 import ShowDotGraph
-import Text.CSV                ( readCSV, writeCSVFile )
+import System.Directory   ( createDirectoryIfMissing, doesDirectoryExist
+                          , doesFileExist, getAbsolutePath, getCurrentDirectory
+                          , getDirectoryContents, getTemporaryDirectory )
+import System.FilePath    ( (</>), replaceExtension )
+import System.IOExts      ( evalCmd, readCompleteFile )
+import System.Environment ( getArgs )
+import System.Process     ( getPID, exitWith, system )
+import Text.CSV           ( readCSV, writeCSVFile )
 
 import CPM.Config              ( Config, repositoryDir, packageInstallDir
-                               , readConfigurationWith )
+                               , readConfigurationWith, showConfiguration )
 import CPM.ErrorLogger
 import CPM.FileUtil            ( copyDirectory, inDirectory, quote
                                , recreateDirectory
@@ -67,6 +69,7 @@ main = do
     ["writedeps"]     -> writeAllPackageDependencies
     ["copydocs"]      -> copyPackageDocumentations packageDocDir
     ["copydocs",d]    -> getAbsolutePath d >>= copyPackageDocumentations
+    ["config"]        -> printConfig
     ["--help"]        -> putStrLn helpText
     ["-h"]            -> putStrLn helpText
     _                 -> do putStrLn $ "Wrong arguments!\n"
@@ -76,30 +79,31 @@ main = do
 helpText :: String
 helpText = banner ++ unlines
     [ "Options:", ""
-    , "add           : add this package version to the central repository"
-    , "                and tag git repository of this package with its version"
-    , "addnotag      : add this package version to the central repository"
-    , "                (do not tag git repository)"
-    , "update        : tag git repository of local package with current version"
-    , "                and update central index with current package specification"
-    , "genhtml [<d>] : generate HTML pages of central repository into <d>"
-    , "                (default: 'CPM')"
+    , "config         : show current configuration"
+    , "add            : add this package version to the central repository"
+    , "                 and tag git repository of this package with its version"
+    , "addnotag       : add this package version to the central repository"
+    , "                 (do not tag git repository)"
+    , "update         : tag git repository of local package with current version"
+    , "                 and update central index with current package specification"
+    , "genhtml [<d>]  : generate HTML pages of central repository into <d>"
+    , "                 (default: 'CPM')"
     , "genhtml <d> <p> <v>: generate HTML pages for package <p> / version <v>"
-    , "                into directory <d>"
+    , "                 into directory <d>"
     , "genreadme [<d>]: generate README.html files of central repository into <d>"
     , "                 (default: 'CPM') if they are not already present"
-    , "gendocs [<d>] : generate HTML documentations of all packages into <d>"
-    , "                (default: '" ++ packageDocDir ++ "')"
-    , "gentar  [<d>] : generate tar.gz files of all packages into <d>"
-    , "                (default: '" ++ packageTarDir ++ "')"
-    , "testall [<d>] : test all packages of the central repository"
-    , "                and write test statistics into directory <d>"
-    , "sumcsv  [<d>] : sum up all CSV package statistic files in <d>"
-    , "showgraph     : visualize all package dependencies as dot graph"
-    , "writedeps     : write all package dependencies as CSV file 'pkgs.csv'"
-    , "copydocs [<d>]: copy latest package documentations"
-    , "                from <d> (default: '" ++ packageDocDir ++ "')"
-    , "                to '" ++ currygleDocDir ++ "'"
+    , "gendocs [<d>]  : generate HTML documentations of all packages into <d>"
+    , "                 (default: '" ++ packageDocDir ++ "')"
+    , "gentar  [<d>]  : generate tar.gz files of all packages into <d>"
+    , "                 (default: '" ++ packageTarDir ++ "')"
+    , "testall [<d>]  : test all packages of the central repository"
+    , "                 and write test statistics into directory <d>"
+    , "sumcsv  [<d>]  : sum up all CSV package statistic files in <d>"
+    , "showgraph      : visualize all package dependencies as dot graph"
+    , "writedeps      : write all package dependencies as CSV file 'pkgs.csv'"
+    , "copydocs [<d> ]: copy latest package documentations"
+    , "                 from <d> (default: '" ++ packageDocDir ++ "')"
+    , "                 to '" ++ currygleDocDir ++ "'"
     ]
 
 ------------------------------------------------------------------------------
@@ -116,7 +120,7 @@ getAllPackageSpecs :: Bool -> IO (Config,[[Package]],[Package])
 getAllPackageSpecs compat = do
   config <- readConfiguration
   putStrLn "Reading base repository..."
-  repo <- getBaseRepository config
+  repo <- fromEL $ getBaseRepository config
   let allpkgversions = listPackages repo
       allcompatpkgs  = sortBy (\ps1 ps2 -> name ps1 <= name ps2)
                               (concatMap (filterCompatPkgs config)
@@ -143,7 +147,7 @@ writeReadmeFiles :: String -> IO ()
 writeReadmeFiles cpmindexdir = do
   createDirectoryIfMissing True cpmindexdir
   inDirectory cpmindexdir $ do
-    (config,allpkgversions,_) <- getAllPackageSpecs False
+    (_,allpkgversions,_) <- getAllPackageSpecs False
     mapM_ genReadmeForPackage
           (sortBy (\p1 p2 -> packageId p1 <= packageId p2)
                   (concat allpkgversions))
@@ -168,7 +172,7 @@ genReadmeForPackage pkg = do
         then do
           -- make them readable:
           system $ unwords ["chmod -f 644 ", quote outfile1, quote outfile2]
-          done
+          return ()
         else error $ "Error during execution of commands:\n" ++
                      formatcmd1 ++ "\n" ++ formatcmd2
  where
@@ -197,18 +201,18 @@ writePackageIndexAsHTML cpmindexdir = do
    (config,allpkgversions,newestpkgs) <- getAllPackageSpecs False
    let stats = pkgStatistics allpkgversions newestpkgs
    putStrLn "Reading all package specifications..."
-   allnpkgs <- mapM (fromErrorLogger . readPackageFromRepository config)
-                     newestpkgs
+   allnpkgs <- fromEL $ mapM (readPackageFromRepository config) newestpkgs
    writePackageIndex allnpkgs "index.html" stats 0
-   allvpkgs <- mapM (fromErrorLogger . readPackageFromRepository config)
+   allvpkgs <- fromEL $
+                mapM (readPackageFromRepository config)
                  (concat
                     (map reverse
                        (sortBy (\pg1 pg2 -> name (head pg1) <= name (head pg2))
                                allpkgversions)))
    writePackageIndex allvpkgs "indexv.html" stats 1
    writeCategoryIndexAsHTML allnpkgs
-   mapM_ (writePackageAsHTML allpkgversions newestpkgs) allvpkgs
-   --mapM_ (writePackageAsHTML allpkgversions newestpkgs) $ take 3 allnpkgs
+   mapM_ (writePackageAsHTML allpkgversions) allvpkgs
+   --mapM_ (writePackageAsHTML allpkgversions) $ take 3 allnpkgs
  where
   writePackageIndex allpkgs indexfile statistics actindex = do
     putStrLn $ "Writing '" ++ indexfile ++ "'..."
@@ -276,24 +280,24 @@ writePackageVersionAsHTML cpmindexdir pname pversion = do
   case readVersion pversion of
     Nothing -> error $ "'" ++ pversion ++ "' is not a valid version"
     Just  v -> do
-      (cfg,allpkgs,newestpkgs) <- getAllPackageSpecs False
-      mbpkg <- getPackageVersion cfg pname v
+      (cfg,allpkgs,_) <- getAllPackageSpecs False
+      mbpkg <- fromEL $ getPackageVersion cfg pname v
       case mbpkg of
         Nothing ->
           error $ "Package '" ++ pname ++ "-" ++ pversion ++ "' not found!"
         Just pkg -> do
-          fullpkg <- fromErrorLogger $ readPackageFromRepository cfg pkg
+          fullpkg <- fromEL $ readPackageFromRepository cfg pkg
           createDirectoryIfMissing True cpmindexdir
           putStrLn $ "Changing to directory '" ++ cpmindexdir ++ "'..."
           inDirectory cpmindexdir $ do
             createDirectoryIfMissing True packageHtmlDir
             system $ "chmod 755 " ++ packageHtmlDir
-            writePackageAsHTML allpkgs newestpkgs fullpkg
+            writePackageAsHTML allpkgs fullpkg
 
 --- Write HTML pages for a single package.
-writePackageAsHTML :: [[Package]] -> [Package] -> Package -> IO ()
-writePackageAsHTML allpkgversions newestpkgs pkg = do
-  pagestring <- packageToHTML allpkgversions newestpkgs pkg
+writePackageAsHTML :: [[Package]] -> Package -> IO ()
+writePackageAsHTML allpkgversions pkg = do
+  pagestring <- packageToHTML allpkgversions pkg
   inDirectory packageHtmlDir $ do
     putStrLn $ "Writing '" ++ htmlfile ++ "'..."
     writeReadableFile htmlfile pagestring
@@ -304,7 +308,7 @@ writePackageAsHTML allpkgversions newestpkgs pkg = do
     -- set symbolic link to recent package:
     system $ unwords
       ["/bin/rm", "-f", htmllink, "&&", "ln", "-s", htmlfile, htmllink]
-    done
+    return ()
  where
   pkgid       = packageId pkg
   htmlfile    = pkgid ++ ".html"
@@ -314,7 +318,7 @@ writePackageAsHTML allpkgversions newestpkgs pkg = do
 
 --- Writes a file readable for all:
 writeReadableFile :: String -> String -> IO ()
-writeReadableFile f s = writeFile f s >> system ("chmod 644 " ++ f) >> done
+writeReadableFile f s = writeFile f s >> system ("chmod 644 " ++ f) >> return ()
 
 -- Format a list of packages as an HTML table
 packageInfosAsHtmlTable :: [Package] -> IO BaseHtml
@@ -393,9 +397,9 @@ genTarOfAllPackages tardir = do
   putStrLn $ "Generating tar.gz of all package versions in '" ++ tardir ++
              "'..."
   (cfg,allpkgversions,_) <- getAllPackageSpecs False
-  allpkgs <- mapM (fromErrorLogger . readPackageFromRepository cfg)
-                   (sortBy (\ps1 ps2 -> packageId ps1 <= packageId ps2)
-                           (concat allpkgversions))
+  allpkgs <- fromEL $ mapM (readPackageFromRepository cfg)
+                        (sortBy (\ps1 ps2 -> packageId ps1 <= packageId ps2)
+                                (concat allpkgversions))
   mapM_ (writePackageAsTar cfg) allpkgs --(take 3 allpkgs)
  where
   writePackageAsTar cfg pkg = do
@@ -406,8 +410,8 @@ genTarOfAllPackages tardir = do
     putStrLn $ "Checking out '" ++ pkgid ++ "'..."
     let checkoutdir = pkgname
     system $ unwords [ "rm -rf", checkoutdir, pkgdir ]
-    fromErrorLogger $ fromELM $ do
-      toELM $ acquireAndInstallPackageFromSource cfg pkg
+    fromEL $ do
+      acquireAndInstallPackageFromSource cfg pkg
       checkoutPackage cfg pkg
     let cmd = unwords [ "cd", checkoutdir, "&&"
                       , "tar", "cvzf", tarfile, ".", "&&"
@@ -426,19 +430,19 @@ genTarOfAllPackages tardir = do
 addNewPackage :: Bool -> IO ()
 addNewPackage withtag = do
   config <- readConfiguration
-  pkg <- fromErrorLogger (loadPackageSpec ".")
+  pkg <- fromEL (loadPackageSpec ".")
   when withtag $ setTagInGit pkg
   let pkgIndexDir      = name pkg </> showVersion (version pkg)
       pkgRepositoryDir = repositoryDir config </> pkgIndexDir
       pkgInstallDir    = packageInstallDir config </> packageId pkg
-  fromErrorLogger $ fromELM $ addPackageToRepository config "." False False
+  fromEL $ addPackageToRepository config "." False False
   putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
   (ecode,_) <- checkoutAndTestPackage "" pkg
   when (ecode>0) $ do
     removeDirectoryComplete pkgRepositoryDir
     removeDirectoryComplete pkgInstallDir
     putStrLn "Checkout/test failure, package deleted in repository directory!"
-    fromELM $ updateRepository config True True True False
+    fromEL $ updateRepository config True True True False
     exitWith 1
   putStrLn $ "\nEverything looks fine..."
   putStrLn $ "\nTo publish the new repository directory, run command:\n"
@@ -541,7 +545,7 @@ combineCSVFilesInDir fromcsv tocsv combine emptycsv statdir outfile = do
 updatePackage :: IO ()
 updatePackage = do
   config <- readConfiguration
-  pkg <- fromErrorLogger (loadPackageSpec ".")
+  pkg <- fromEL (loadPackageSpec ".")
   let pkgInstallDir    = packageInstallDir config </> packageId pkg
   setTagInGit pkg
   putStrLn $ "Deleting old repo copy '" ++ pkgInstallDir ++ "'..."
@@ -550,17 +554,15 @@ updatePackage = do
   when (ecode > 0) $ do removeDirectoryComplete pkgInstallDir
                         putStrLn $ "ERROR in package, CPM index not updated!"
                         exitWith 1
-  fromErrorLogger $ fromELM $ addPackageToRepository config "." True False
+  fromEL $ addPackageToRepository config "." True False
 
 ------------------------------------------------------------------------------
 -- Show package dependencies as dot graph
 showAllPackageDependencies :: IO ()
 showAllPackageDependencies = do
-  config <- readConfiguration
-  pkgs <- getBaseRepository config >>= return . allPackages
+  pkgs <- getAllPackages
   let alldeps = map (\p -> (name p, map (\ (Dependency p' _) -> p')
-                                        (dependencies p)))
-                    pkgs
+                                        (dependencies p))) pkgs
       dotgraph = depsToGraph alldeps
   putStrLn $ "Show dot graph..."
   viewDotGraph dotgraph
@@ -588,8 +590,7 @@ writeAllPackageDependencies = do
 -- can be used by Currygle to generate the documentation index
 copyPackageDocumentations :: String -> IO ()
 copyPackageDocumentations packagedocdir = do
-  config <- readConfiguration
-  allpkgs <- getBaseRepository config >>= return . allPackages
+  allpkgs <- getAllPackages
   let pkgs   = map sortVersions (groupBy (\a b -> name a == name b) allpkgs)
       pkgids = sortBy (\xs ys -> head xs <= head ys) (map (map packageId) pkgs)
   putStrLn $ "Number of package documentations: " ++ show (length pkgs)
@@ -598,7 +599,7 @@ copyPackageDocumentations packagedocdir = do
  where
   sortVersions ps = sortBy (\a b -> version a `vgt` version b) ps
 
-  copyPackageDoc [] = done
+  copyPackageDoc [] = return ()
   copyPackageDoc (pid:pids) = do
     let pdir = packagedocdir </> pid
     exdoc <- doesDirectoryExist pdir
@@ -611,14 +612,31 @@ copyPackageDocumentations packagedocdir = do
           else copyPackageDoc pids
 
 ------------------------------------------------------------------------------
+--- Returns all packages where in each package
+--- the name, version, dependencies, and compilerCompatibility is set.
+getAllPackages :: IO [Package]
+getAllPackages = do
+  config <- readConfiguration
+  fromEL (getBaseRepository config >>= return . allPackages)
+
 --- Reads to the .cpmrc file from the user's home directory and return
 --- the configuration. Terminate in case of some errors.
 readConfiguration :: IO Config
-readConfiguration =
-  readConfigurationWith [] >>= \c -> case c of
+readConfiguration = do
+  c <- fromEL $ readConfigurationWith []
+  case c of
     Left err -> do putStrLn $ "Error reading .cpmrc file: " ++ err
                    exitWith 1
     Right c' -> return c'
+
+--- Prints the current configuration.
+printConfig :: IO ()
+printConfig = do
+  cfg <- readConfiguration
+  putStr $ unlines [banner, "Current configuration:", "", showConfiguration cfg]
+  (_,_,allpkgs) <- getAllPackageSpecs True
+  putStrLn $ "Newest compatible packages:\n" ++
+             unwords (map packageId allpkgs)
 
 --- Executes an IO action with the current directory set to a new empty
 --- temporary directory. After the execution, the temporary directory
@@ -688,5 +706,12 @@ directoryContentsAsHTML d base dir = do
                               [htxt $ df ++ if isdir then "/" else ""]]]
 
   isReal fn = not ("." `isPrefixOf` fn)
+
+------------------------------------------------------------------------------
+--- Transform an error logger action into a standard IO action.
+fromEL :: ErrorLogger a -> IO a
+fromEL = fromErrorLogger Info False
+-- To show debug infos and timings, use: 
+--fromEL = fromErrorLogger Debug True
 
 ------------------------------------------------------------------------------

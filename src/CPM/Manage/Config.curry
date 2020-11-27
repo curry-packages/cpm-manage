@@ -5,7 +5,7 @@
 module CPM.Manage.Config
   where
 
-import FilePath  ( (</>) )
+import System.FilePath  ( (</>) )
 
 ------------------------------------------------------------------------------
 -- Some global settings:
@@ -14,7 +14,7 @@ import FilePath  ( (</>) )
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (version of 05/10/2020)"
+  bannerText = "cpm-manage (version of 27/11/2020)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Base URL of CPM documentations
