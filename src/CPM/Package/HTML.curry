@@ -7,7 +7,7 @@ module CPM.Package.HTML
   where
 
 import Data.Char        ( isSpace )
-import Data.List        ( find, intersperse, isPrefixOf, splitOn )
+import Data.List        ( find, intercalate, intersperse, isPrefixOf, splitOn )
 
 import Data.Time        ( CalendarTime, calendarTimeToString, getLocalTime )
 import HTML.Base
@@ -112,7 +112,7 @@ packageInfoAsHTML allpkgversions pkg mbdocurl =
   maintnr ++
   compilers ++
   expmods ++
-  executable ++
+  executables ++
   showParaField description "Description" ++
   showLicense ++
   showParaField copyright   "Copyright" ++
@@ -165,11 +165,13 @@ packageInfoAsHTML allpkgversions pkg mbdocurl =
                                       mbdocurl])
                    (exportedModules pkg))]
 
-  executable =
-    maybe []
-          (\ (PackageExecutable n _ _) ->
-             [("Executable installed by package", [kbdInput [htxt n]])])
-          (executableSpec pkg)
+  executables = case executableSpec pkg of
+    []   -> []
+    [ex] -> [("Executable installed by package", getExName ex)]
+    exs  -> [("Executables installed by package",
+              intercalate [nbsp] (map getExName  exs))]
+   where
+    getExName (PackageExecutable n _ _) = [kbdInput [htxt n]]
 
   showLicense =
    let lkind = case license pkg of

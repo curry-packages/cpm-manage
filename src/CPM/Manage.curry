@@ -9,8 +9,8 @@ module CPM.Manage ( main )
   where
 
 import Control.Monad      ( when, unless )
-import Data.List          ( groupBy, isPrefixOf, isSuffixOf
-                          , nub, nubBy, partition, sortBy, sum )
+import Data.List          ( (\\), groupBy, isPrefixOf, intercalate, isSuffixOf
+                          , nub, nubBy, partition, sort, sortBy, sum )
 
 import Data.Time          ( CalendarTime, getLocalTime, toDayString )
 import HTML.Base
@@ -341,9 +341,9 @@ packageInfosAsHtmlTable pkgs = do
                                           [htxt "API doc"]]
                      else [nbsp]
       , if hasapidir then docref else [nbsp]
-      , [maybe (htxt "")
-               (\ (PackageExecutable n _ _) -> kbdInput [htxt n])
-               (executableSpec pkg)]
+      , intercalate [nbsp]
+          (map (\ (PackageExecutable n _ _) -> [kbdInput [htxt n]])
+               (executableSpec pkg))
       , [htxt $ synopsis pkg]
       , [htxt $ showVersion (version pkg)] ]
    where
@@ -634,9 +634,12 @@ printConfig :: IO ()
 printConfig = do
   cfg <- readConfiguration
   putStr $ unlines [banner, "Current configuration:", "", showConfiguration cfg]
-  (_,_,allpkgs) <- getAllPackageSpecs True
-  putStrLn $ "Newest compatible packages:\n" ++
-             unwords (map packageId allpkgs)
+  (_,allpkgversions,allcompatpkgs) <- getAllPackageSpecs True
+  putStrLn $ "\nNewest compatible packages:\n" ++
+             unwords (map packageId allcompatpkgs)
+  let allpkgs  = concatMap (take 1) allpkgversions
+      incnames = map name allpkgs \\ map name allcompatpkgs
+  putStrLn $ "\nIncompatible packages:\n" ++ unwords (sort incnames)
 
 --- Executes an IO action with the current directory set to a new empty
 --- temporary directory. After the execution, the temporary directory
