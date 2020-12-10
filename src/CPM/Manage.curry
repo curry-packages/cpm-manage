@@ -47,85 +47,113 @@ import CPM.Package.HTML
 ------------------------------------------------------------------------------
 main :: IO ()
 main = do
-  args <- getArgs
+  allargs <- getArgs
+  let (rcdefs, args) = readRcOptions allargs
+  config <- readConfiguration rcdefs
   case args of
-    ["genhtml"]       -> writePackageIndexAsHTML "CPM"
-    ["genhtml",d]     -> writePackageIndexAsHTML d
-    ["genhtml",d,p,v] -> writePackageVersionAsHTML d p v
-    ["genreadme"]     -> writeReadmeFiles "CPM"
-    ["genreadme",d]   -> writeReadmeFiles d
-    ["gendocs"]       -> generateDocsOfAllPackages packageDocDir
-    ["gendocs",d]     -> getAbsolutePath d >>= generateDocsOfAllPackages
-    ["gentar"]        -> genTarOfAllPackages packageTarDir
-    ["gentar",d]      -> getAbsolutePath d >>= genTarOfAllPackages
-    ["testall"]       -> testAllPackages ""
-    ["testall",d]     -> getAbsolutePath d >>= testAllPackages
+    ["genhtml"]       -> writePackageIndexAsHTML config "CPM"
+    ["genhtml",d]     -> writePackageIndexAsHTML config d
+    ["genhtml",d,p,v] -> writePackageVersionAsHTML config d p v
+    ["genreadme"]     -> writeReadmeFiles config "CPM"
+    ["genreadme",d]   -> writeReadmeFiles config d
+    ["gendocs"]       -> generateDocsOfAllPackages config rcdefs packageDocDir
+    ["gendocs",d]     -> getAbsolutePath d >>=
+                           generateDocsOfAllPackages config rcdefs
+    ["gentar"]        -> genTarOfAllPackages config packageTarDir
+    ["gentar",d]      -> getAbsolutePath d >>= genTarOfAllPackages config
+    ["testall"]       -> testAllPackages config rcdefs ""
+    ["testall",d]     -> getAbsolutePath d >>= testAllPackages config rcdefs
     ["sumcsv",d]      -> do ad <- getAbsolutePath d
                             sumCSVStatsOfPkgs ad "SUM.csv"
-    ["add"]           -> addNewPackage True
-    ["addnotag"]      -> addNewPackage False
-    ["update"]        -> updatePackage
-    ["showgraph"]     -> showAllPackageDependencies
-    ["writedeps"]     -> writeAllPackageDependencies
-    ["copydocs"]      -> copyPackageDocumentations packageDocDir
-    ["copydocs",d]    -> getAbsolutePath d >>= copyPackageDocumentations
-    ["config"]        -> printConfig
+    ["add"]           -> addNewPackage config rcdefs True
+    ["addnotag"]      -> addNewPackage config rcdefs False
+    ["update"]        -> updatePackage config rcdefs
+    ["showgraph"]     -> showAllPackageDependencies config
+    ["writedeps"]     -> writeAllPackageDependencies config
+    ["copydocs"]      -> copyPackageDocumentations config packageDocDir
+    ["copydocs",d]    -> getAbsolutePath d >>= copyPackageDocumentations config
+    ["config"]        -> printConfig config
     ["--help"]        -> putStrLn helpText
     ["-h"]            -> putStrLn helpText
     _                 -> do putStrLn $ "Wrong arguments!\n"
                             putStrLn helpText
                             exitWith 1
 
+-- Reads given RC options of the form `-dDEF` or `--define DEF`,
+-- where `DEF` has the form `option=value`, from a given list
+-- of arguments.
+readRcOptions :: [String] -> ([(String,String)], [String])
+readRcOptions []         = ([], [])
+readRcOptions (arg:args)
+  | "--define" `isPrefixOf` arg
+  = case args of
+      []     -> error "Illegal argument: '--define' without argument"
+      (a:as) -> let (remopts, remargs) = readRcOptions as
+                in (readOpt "--define " a : remopts, remargs)
+  | "-d" `isPrefixOf` arg
+  = let (remopts, remargs) = readRcOptions args
+    in (readOpt "-d" (drop 2 arg) : remopts, remargs)
+  | otherwise
+  = let (remopts, remargs) = readRcOptions args
+    in (remopts, arg : remargs)
+ where
+  readOpt p s =
+    let (option,value) = break (=='=') s
+    in if null value
+         then error $ "Illegal option definition: '=' missing in\n" ++ p ++ s
+         else (option, tail value)
+
 helpText :: String
 helpText = banner ++ unlines
-    [ "Options:", ""
-    , "config         : show current configuration"
-    , "add            : add this package version to the central repository"
-    , "                 and tag git repository of this package with its version"
-    , "addnotag       : add this package version to the central repository"
-    , "                 (do not tag git repository)"
-    , "update         : tag git repository of local package with current version"
-    , "                 and update central index with current package specification"
-    , "genhtml [<d>]  : generate HTML pages of central repository into <d>"
-    , "                 (default: 'CPM')"
-    , "genhtml <d> <p> <v>: generate HTML pages for package <p> / version <v>"
-    , "                 into directory <d>"
-    , "genreadme [<d>]: generate README.html files of central repository into <d>"
-    , "                 (default: 'CPM') if they are not already present"
-    , "gendocs [<d>]  : generate HTML documentations of all packages into <d>"
-    , "                 (default: '" ++ packageDocDir ++ "')"
-    , "gentar  [<d>]  : generate tar.gz files of all packages into <d>"
-    , "                 (default: '" ++ packageTarDir ++ "')"
-    , "testall [<d>]  : test all packages of the central repository"
-    , "                 and write test statistics into directory <d>"
-    , "sumcsv  [<d>]  : sum up all CSV package statistic files in <d>"
-    , "showgraph      : visualize all package dependencies as dot graph"
-    , "writedeps      : write all package dependencies as CSV file 'pkgs.csv'"
-    , "copydocs [<d> ]: copy latest package documentations"
-    , "                 from <d> (default: '" ++ packageDocDir ++ "')"
-    , "                 to '" ++ currygleDocDir ++ "'"
-    ]
+  [ "Options:", ""
+  , "-d, -define option=value : Overwrite definition of cpmrc file"
+  , ""
+  , "Commands:", ""
+  , "config         : show current configuration"
+  , "add            : add this package version to the central repository"
+  , "                 and tag git repository of this package with its version"
+  , "addnotag       : add this package version to the central repository"
+  , "                 (do not tag git repository)"
+  , "update         : tag git repository of local package with current version"
+  , "                 and update central index with current package specification"
+  , "genhtml [<d>]  : generate HTML pages of central repository into <d>"
+  , "                 (default: 'CPM')"
+  , "genhtml <d> <p> <v>: generate HTML pages for package <p> / version <v>"
+  , "                 into directory <d>"
+  , "genreadme [<d>]: generate README.html files of central repository into <d>"
+  , "                 (default: 'CPM') if they are not already present"
+  , "gendocs [<d>]  : generate HTML documentations of all packages into <d>"
+  , "                 (default: '" ++ packageDocDir ++ "')"
+  , "gentar  [<d>]  : generate tar.gz files of all packages into <d>"
+  , "                 (default: '" ++ packageTarDir ++ "')"
+  , "testall [<d>]  : test all packages of the central repository"
+  , "                 and write test statistics into directory <d>"
+  , "sumcsv  [<d>]  : sum up all CSV package statistic files in <d>"
+  , "showgraph      : visualize all package dependencies as dot graph"
+  , "writedeps      : write all package dependencies as CSV file 'pkgs.csv'"
+  , "copydocs [<d> ]: copy latest package documentations"
+  , "                 from <d> (default: '" ++ packageDocDir ++ "')"
+  , "                 to '" ++ currygleDocDir ++ "'"
+  ]
 
 ------------------------------------------------------------------------------
 --- Get all packages from the repository.
 --- For each package, get the newest version compatible
 --- to the current compiler. If there is no compatible version and the
---- first argument is False, get the newest version, otherwise the package
+--- second argument is False, get the newest version, otherwise the package
 --- is ignored.
---- In addition to this package list (third component),
---- the first component contains the current configuration and the
---- second component the list of all packages grouped by versions
+--- In addition to this package list (second component),
+--- the first component contains the list of all packages grouped by versions
 --- (independent of the compiler compatbility).
-getAllPackageSpecs :: Bool -> IO (Config,[[Package]],[Package])
-getAllPackageSpecs compat = do
-  config <- readConfiguration
+getAllPackageSpecs :: Config -> Bool -> IO ([[Package]],[Package])
+getAllPackageSpecs config compat = do
   putStrLn "Reading base repository..."
   repo <- fromEL $ getBaseRepository config
   let allpkgversions = listPackages repo
       allcompatpkgs  = sortBy (\ps1 ps2 -> name ps1 <= name ps2)
                               (concatMap (filterCompatPkgs config)
                                          allpkgversions)
-  return (config,allpkgversions,allcompatpkgs)
+  return (allpkgversions, allcompatpkgs)
  where
   -- Returns the first package compatible to the current compiler.
   -- If `compat` is False and there are no compatible packages,
@@ -143,11 +171,11 @@ getAllPackageSpecs compat = do
 -- If there is a README file in directory PACKAGES/p-v but not
 -- README.html in directory DOC/p-v, generate the latter by
 --     pandoc -s -t html -o ....
-writeReadmeFiles :: String -> IO ()
-writeReadmeFiles cpmindexdir = do
+writeReadmeFiles :: Config -> String -> IO ()
+writeReadmeFiles cfg cpmindexdir = do
   createDirectoryIfMissing True cpmindexdir
   inDirectory cpmindexdir $ do
-    (_,allpkgversions,_) <- getAllPackageSpecs False
+    (allpkgversions,_) <- getAllPackageSpecs cfg False
     mapM_ genReadmeForPackage
           (sortBy (\p1 p2 -> packageId p1 <= packageId p2)
                   (concat allpkgversions))
@@ -192,13 +220,13 @@ genReadmeForPackage pkg = do
     
 ------------------------------------------------------------------------------
 -- Generate main HTML index pages of the CPM repository.
-writePackageIndexAsHTML :: String -> IO ()
-writePackageIndexAsHTML cpmindexdir = do
+writePackageIndexAsHTML :: Config -> String -> IO ()
+writePackageIndexAsHTML config cpmindexdir = do
   createDirectoryIfMissing True cpmindexdir
   inDirectory cpmindexdir $ do
    createDirectoryIfMissing True packageHtmlDir
    system $ "chmod 755 " ++ packageHtmlDir
-   (config,allpkgversions,newestpkgs) <- getAllPackageSpecs False
+   (allpkgversions,newestpkgs) <- getAllPackageSpecs config False
    let stats = pkgStatistics allpkgversions newestpkgs
    putStrLn "Reading all package specifications..."
    allnpkgs <- fromEL $ mapM (readPackageFromRepository config) newestpkgs
@@ -275,12 +303,12 @@ cpmIndexPage title maindoc actindex = do
                   maindoc (curryDocFooter time)
 
 --- Generate HTML page for a package in a given version into a directory.
-writePackageVersionAsHTML :: String -> String -> String -> IO ()
-writePackageVersionAsHTML cpmindexdir pname pversion = do
+writePackageVersionAsHTML :: Config -> String -> String -> String -> IO ()
+writePackageVersionAsHTML cfg cpmindexdir pname pversion = do
   case readVersion pversion of
     Nothing -> error $ "'" ++ pversion ++ "' is not a valid version"
     Just  v -> do
-      (cfg,allpkgs,_) <- getAllPackageSpecs False
+      (allpkgs,_) <- getAllPackageSpecs cfg False
       mbpkg <- fromEL $ getPackageVersion cfg pname v
       case mbpkg of
         Nothing ->
@@ -353,33 +381,34 @@ packageInfosAsHtmlTable pkgs = do
 
 ------------------------------------------------------------------------------
 -- Generate HTML documentation of all packages in the central repository
-generateDocsOfAllPackages :: String -> IO ()
-generateDocsOfAllPackages packagedocdir = do
-  (_,_,allpkgs) <- getAllPackageSpecs True
+generateDocsOfAllPackages :: Config -> [(String,String)] -> String -> IO ()
+generateDocsOfAllPackages cfg rcdefs packagedocdir = do
+  (_,allpkgs) <- getAllPackageSpecs cfg True
   mapM_ genDocOfPackage allpkgs
  where
   genDocOfPackage pkg = inEmptyTempDir $ do
     let pname = name pkg
         pversion = showVersion (version pkg)
     putStrLn $ unlines [dline, "Documenting: " ++ pname, dline]
-    let cmd = unwords [ "rm -rf", pname, "&&"
-                      , "cypm","checkout", pname, pversion, "&&"
-                      , "cd", pname, "&&"
-                      , "cypm", "install", "--noexec", "&&"
-                      , "cypm", "doc", "--docdir", packagedocdir
-                              , "--url", cpmDocURL, "&&"
-                      , "cd ..", "&&"
-                      , "rm -rf", pname
-                      ]
+    let cpmcall = cpmCall rcdefs
+        cmd     = unwords [ "rm -rf", pname, "&&"
+                          , cpmcall, "checkout", pname, pversion, "&&"
+                          , "cd", pname, "&&"
+                          , cpmcall, "install", "--noexec", "&&"
+                          , cpmcall, "doc", "--docdir", packagedocdir
+                                   , "--url", cpmDocURL, "&&"
+                          , "cd ..", "&&"
+                          , "rm -rf", pname
+                          ]
     putStrLn $ "CMD: " ++ cmd
     system cmd
 
 ------------------------------------------------------------------------------
 -- Run `cypm test` on all packages of the central repository
-testAllPackages :: String -> IO ()
-testAllPackages statdir = do
-  (_,_,allpkgs) <- getAllPackageSpecs True
-  results <- mapM (checkoutAndTestPackage statdir) allpkgs
+testAllPackages :: Config -> [(String,String)] -> String -> IO ()
+testAllPackages cfg rcdefs statdir = do
+  (_,allpkgs) <- getAllPackageSpecs cfg True
+  results <- mapM (checkoutAndTestPackage rcdefs statdir) allpkgs
   if sum (map fst results) == 0
     then putStrLn $ show (length allpkgs) ++ " PACKAGES SUCCESSFULLY TESTED!"
     else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
@@ -391,18 +420,18 @@ dline = take 78 (repeat '=')
 
 ------------------------------------------------------------------------------
 -- Generate tar.gz files of all packages (in the current directory)
-genTarOfAllPackages :: String -> IO ()
-genTarOfAllPackages tardir = do
+genTarOfAllPackages :: Config -> String -> IO ()
+genTarOfAllPackages cfg tardir = do
   createDirectoryIfMissing True tardir
   putStrLn $ "Generating tar.gz of all package versions in '" ++ tardir ++
              "'..."
-  (cfg,allpkgversions,_) <- getAllPackageSpecs False
+  (allpkgversions,_) <- getAllPackageSpecs cfg False
   allpkgs <- fromEL $ mapM (readPackageFromRepository cfg)
                         (sortBy (\ps1 ps2 -> packageId ps1 <= packageId ps2)
                                 (concat allpkgversions))
-  mapM_ (writePackageAsTar cfg) allpkgs --(take 3 allpkgs)
+  mapM_ writePackageAsTar allpkgs --(take 3 allpkgs)
  where
-  writePackageAsTar cfg pkg = do
+  writePackageAsTar pkg = do
     let pkgname  = name pkg
         pkgid    = packageId pkg
         pkgdir   = tardir </> pkgid
@@ -427,9 +456,8 @@ genTarOfAllPackages tardir = do
 ------------------------------------------------------------------------------
 -- Add a new package (already committed and pushed into its git repo)
 -- where the package specification is stored in the current directory.
-addNewPackage :: Bool -> IO ()
-addNewPackage withtag = do
-  config <- readConfiguration
+addNewPackage :: Config -> [(String,String)] -> Bool -> IO ()
+addNewPackage config rcdefs withtag = do
   pkg <- fromEL (loadPackageSpec ".")
   when withtag $ setTagInGit pkg
   let pkgIndexDir      = name pkg </> showVersion (version pkg)
@@ -437,7 +465,7 @@ addNewPackage withtag = do
       pkgInstallDir    = packageInstallDir config </> packageId pkg
   fromEL $ addPackageToRepository config "." False False
   putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
-  (ecode,_) <- checkoutAndTestPackage "" pkg
+  (ecode,_) <- checkoutAndTestPackage rcdefs "" pkg
   when (ecode>0) $ do
     removeDirectoryComplete pkgRepositoryDir
     removeDirectoryComplete pkgInstallDir
@@ -467,8 +495,9 @@ setTagInGit pkg = do
 -- Test a specific version of a package by checking it out in a temporary
 -- directory, install it (with a local bin dir), and run all tests.
 -- Returns the exit code of the package test command and the packaged id.
-checkoutAndTestPackage :: String -> Package -> IO (Int,String)
-checkoutAndTestPackage statdir pkg = inEmptyTempDir $ do
+checkoutAndTestPackage :: [(String,String)] -> String -> Package
+                       -> IO (Int,String)
+checkoutAndTestPackage rcdefs statdir pkg = inEmptyTempDir $ do
   putStrLn $ unlines [dline, "Testing package: " ++ pkgid, dline]
   -- create installation bin dir:
   curdir <- getCurrentDirectory
@@ -477,18 +506,17 @@ checkoutAndTestPackage statdir pkg = inEmptyTempDir $ do
   let statfile = if null statdir then "" else statdir </> pkgid ++ ".csv"
   unless (null statdir) $ createDirectoryIfMissing True statdir
   let checkoutdir = pkgname
+      cpmcall = cpmCall (rcdefs ++ [("bin_install_path",bindir)])
       cmd = unwords $
               [ "rm -rf", checkoutdir, "&&"
-              , "cypm", "checkout", pkgname, showVersion pkgversion, "&&"
+              , cpmcall, "checkout", pkgname, showVersion pkgversion, "&&"
               , "cd", checkoutdir, "&&"
               -- install possible binaries in bindir:
-              , "cypm", "-d bin_install_path=" ++ bindir, "install", "&&"
+              , cpmcall, "install", "&&"
               , "export PATH=" ++ bindir ++ ":$PATH", "&&"
-              , "cypm", "test"] ++
+              , cpmcall, "test"] ++
               (if null statfile then [] else ["-f", statfile]) ++
-              [ "&&"
-              , "cypm", "-d bin_install_path=" ++ bindir, "uninstall"
-              ]
+              [ "&&", cpmcall, "uninstall" ]
   putStrLn $ "...with command:\n" ++ cmd
   ecode <- system cmd
   when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '" ++ pkgid ++ "'!"
@@ -542,15 +570,14 @@ combineCSVFilesInDir fromcsv tocsv combine emptycsv statdir outfile = do
 ------------------------------------------------------------------------------
 -- Re-tag the current git version with the current package version
 -- and copy the package spec file to the cpm index
-updatePackage :: IO ()
-updatePackage = do
-  config <- readConfiguration
+updatePackage :: Config -> [(String,String)] -> IO ()
+updatePackage config rcdefs = do
   pkg <- fromEL (loadPackageSpec ".")
   let pkgInstallDir    = packageInstallDir config </> packageId pkg
   setTagInGit pkg
   putStrLn $ "Deleting old repo copy '" ++ pkgInstallDir ++ "'..."
   removeDirectoryComplete pkgInstallDir
-  (ecode,_) <- checkoutAndTestPackage "" pkg
+  (ecode,_) <- checkoutAndTestPackage rcdefs "" pkg
   when (ecode > 0) $ do removeDirectoryComplete pkgInstallDir
                         putStrLn $ "ERROR in package, CPM index not updated!"
                         exitWith 1
@@ -558,9 +585,9 @@ updatePackage = do
 
 ------------------------------------------------------------------------------
 -- Show package dependencies as dot graph
-showAllPackageDependencies :: IO ()
-showAllPackageDependencies = do
-  pkgs <- getAllPackages
+showAllPackageDependencies :: Config -> IO ()
+showAllPackageDependencies cfg = do
+  pkgs <- getAllPackages cfg
   let alldeps = map (\p -> (name p, map (\ (Dependency p' _) -> p')
                                         (dependencies p))) pkgs
       dotgraph = depsToGraph alldeps
@@ -575,9 +602,9 @@ depsToGraph cpmdeps =
          (nub (concatMap (\ (p,ds) -> map (\d -> (p,d)) ds) cpmdeps)))
 
 -- Write package dependencies into CSV file 'pkgs.csv'
-writeAllPackageDependencies :: IO ()
-writeAllPackageDependencies = do
-  (_,_,pkgs) <- getAllPackageSpecs True
+writeAllPackageDependencies :: Config -> IO ()
+writeAllPackageDependencies cfg = do
+  (_,pkgs) <- getAllPackageSpecs cfg True
   let alldeps = map (\p -> (name p, map (\ (Dependency p' _) -> p')
                                         (dependencies p)))
                     pkgs
@@ -588,9 +615,9 @@ writeAllPackageDependencies = do
 -- Copy all package documentations from directory `packagedocdir` into
 -- the directory `currygleDocDir` so that the documentations
 -- can be used by Currygle to generate the documentation index
-copyPackageDocumentations :: String -> IO ()
-copyPackageDocumentations packagedocdir = do
-  allpkgs <- getAllPackages
+copyPackageDocumentations :: Config -> String -> IO ()
+copyPackageDocumentations cfg packagedocdir = do
+  allpkgs <- getAllPackages cfg
   let pkgs   = map sortVersions (groupBy (\a b -> name a == name b) allpkgs)
       pkgids = sortBy (\xs ys -> head xs <= head ys) (map (map packageId) pkgs)
   putStrLn $ "Number of package documentations: " ++ show (length pkgs)
@@ -614,27 +641,25 @@ copyPackageDocumentations packagedocdir = do
 ------------------------------------------------------------------------------
 --- Returns all packages where in each package
 --- the name, version, dependencies, and compilerCompatibility is set.
-getAllPackages :: IO [Package]
-getAllPackages = do
-  config <- readConfiguration
+getAllPackages :: Config -> IO [Package]
+getAllPackages config = do
   fromEL (getBaseRepository config >>= return . allPackages)
 
 --- Reads to the .cpmrc file from the user's home directory and return
 --- the configuration. Terminate in case of some errors.
-readConfiguration :: IO Config
-readConfiguration = do
-  c <- fromEL $ readConfigurationWith []
+readConfiguration :: [(String,String)] -> IO Config
+readConfiguration rcdefs = do
+  c <- fromEL $ readConfigurationWith rcdefs
   case c of
     Left err -> do putStrLn $ "Error reading .cpmrc file: " ++ err
                    exitWith 1
     Right c' -> return c'
 
 --- Prints the current configuration.
-printConfig :: IO ()
-printConfig = do
-  cfg <- readConfiguration
+printConfig :: Config -> IO ()
+printConfig cfg = do
   putStr $ unlines [banner, "Current configuration:", "", showConfiguration cfg]
-  (_,allpkgversions,allcompatpkgs) <- getAllPackageSpecs True
+  (allpkgversions,allcompatpkgs) <- getAllPackageSpecs cfg True
   putStrLn $ "\nNewest compatible packages:\n" ++
              unwords (map packageId allcompatpkgs)
   let allpkgs  = concatMap (take 1) allpkgversions
@@ -709,6 +734,12 @@ directoryContentsAsHTML d base dir = do
                               [htxt $ df ++ if isdir then "/" else ""]]]
 
   isReal fn = not ("." `isPrefixOf` fn)
+
+------------------------------------------------------------------------------
+-- Generates the call to CPM where the given rc definitions are added.
+cpmCall :: [(String,String)] -> String
+cpmCall rcdefs =
+  "cypm" ++ concatMap (\ (k,v) -> " --define " ++ k ++ "=" ++ v) rcdefs
 
 ------------------------------------------------------------------------------
 --- Transform an error logger action into a standard IO action.
