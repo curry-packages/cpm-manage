@@ -9,8 +9,9 @@ module CPM.Manage ( main )
   where
 
 import Control.Monad      ( when, unless )
-import Data.List          ( (\\), groupBy, isPrefixOf, intercalate, isSuffixOf
-                          , nub, nubBy, partition, sort, sortBy, sum )
+import Data.List          ( (\\), groupBy, isPrefixOf, intercalate, intersect
+                          , isSuffixOf, nub, nubBy, partition, sort, sortBy
+                          , sum, union )
 
 import Data.Time          ( CalendarTime, getLocalTime, toDayString )
 import HTML.Base
@@ -68,7 +69,8 @@ main = do
     ["add"]           -> addNewPackage config rcdefs True
     ["addnotag"]      -> addNewPackage config rcdefs False
     ["update"]        -> updatePackage config rcdefs
-    ["showgraph"]     -> showAllPackageDependencies config
+    ["showgraph"]     -> showAllPackageDependencies config ""
+    ["showgraph",p]   -> showAllPackageDependencies config p
     ["writedeps"]     -> writeAllPackageDependencies config
     ["copydocs"]      -> copyPackageDocumentations config packageDocDir
     ["copydocs",d]    -> getAbsolutePath d >>= copyPackageDocumentations config
@@ -110,12 +112,14 @@ helpText = banner ++ unlines
   , ""
   , "Commands:", ""
   , "config         : show current configuration"
+  {-
   , "add            : add this package version to the central repository"
   , "                 and tag git repository of this package with its version"
   , "addnotag       : add this package version to the central repository"
   , "                 (do not tag git repository)"
   , "update         : tag git repository of local package with current version"
   , "                 and update central index with current package specification"
+  -}
   , "genhtml [<d>]  : generate HTML pages of central repository into <d>"
   , "                 (default: 'CPM')"
   , "genhtml <d> <p> <v>: generate HTML pages for package <p> / version <v>"
@@ -129,7 +133,8 @@ helpText = banner ++ unlines
   , "testall [<d>]  : test all packages of the central repository"
   , "                 and write test statistics into directory <d>"
   , "sumcsv  [<d>]  : sum up all CSV package statistic files in <d>"
-  , "showgraph      : visualize all package dependencies as dot graph"
+  , "showgraph      : visualize all package dependencies as a dot graph"
+  , "showgraph <p>  : visualize dependencies for package <p> as a dot graph"
   , "writedeps      : write all package dependencies as CSV file 'pkgs.csv'"
   , "copydocs [<d> ]: copy latest package documentations"
   , "                 from <d> (default: '" ++ packageDocDir ++ "')"
@@ -585,19 +590,43 @@ updatePackage config rcdefs = do
 
 ------------------------------------------------------------------------------
 -- Show package dependencies as dot graph
-showAllPackageDependencies :: Config -> IO ()
-showAllPackageDependencies cfg = do
+showAllPackageDependencies :: Config -> String -> IO ()
+showAllPackageDependencies cfg pname = do
   pkgs <- getAllPackages cfg
-  let alldeps = map (\p -> (name p, map (\ (Dependency p' _) -> p')
-                                        (dependencies p))) pkgs
-      dotgraph = depsToGraph alldeps
+  let alldeps  = map (\p -> (name p, map (\ (Dependency p' _) -> p')
+                                         (dependencies p))) pkgs
+      deps     = if null pname then alldeps
+                               else depsOnPkgs alldeps [pname] [] [] `union`
+                                    depsOfPkgs alldeps [pname] [] []
+      dotgraph = depsToGraph pname deps
   putStrLn $ "Show dot graph..."
   viewDotGraph dotgraph
 
-depsToGraph :: [(String, [String])] -> DotGraph
-depsToGraph cpmdeps =
+-- Type of package dependencies (based only on package names).
+type PkgDeps = [(String, [String])]
+
+--- Computes all transitive dependencies on a list of packages (second arg).
+depsOnPkgs :: PkgDeps -> [String] -> [String] -> PkgDeps -> PkgDeps 
+depsOnPkgs _       []     seenps deps =
+  map (\ (pn,ds) -> (pn, ds `intersect` seenps)) deps
+depsOnPkgs alldeps (p:ps) seenps deps =
+  let pdeps = filter ((p `elem`) . snd) alldeps
+  in depsOnPkgs alldeps (ps `union` nub (map fst pdeps \\ seenps))
+                (p:seenps) (pdeps `union` deps)
+
+--- Computes all transitive dependencies of a list of packages (second arg).
+depsOfPkgs :: PkgDeps -> [String] -> [String] -> PkgDeps -> PkgDeps 
+depsOfPkgs _       []     _      deps = deps
+depsOfPkgs alldeps (p:ps) seenps deps =
+  let pdeps = filter ((==p) . fst) alldeps
+  in depsOfPkgs alldeps (ps `union` nub (concatMap snd pdeps \\ seenps))
+                (p:seenps) (pdeps `union` deps)
+
+depsToGraph :: String -> PkgDeps -> DotGraph
+depsToGraph pname cpmdeps =
   dgraph "CPM Dependencies"
-    (map (\s -> Node s []) (nub (map fst cpmdeps ++ concatMap snd cpmdeps)))
+    (map (\s -> Node s (if pname==s then [("style","filled"),("fillcolor","red")] else []))
+         (nub (map fst cpmdeps ++ concatMap snd cpmdeps)))
     (map (\ (s,t) -> Edge s t [])
          (nub (concatMap (\ (p,ds) -> map (\d -> (p,d)) ds) cpmdeps)))
 
