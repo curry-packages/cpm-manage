@@ -301,7 +301,7 @@ cpmIndexPage title maindoc actindex = do
       btbase     = "bt4"
   return $ showHtmlPage $
     bootstrapPage (favIcon btbase) (cssIncludes btbase) (jsIncludes btbase)
-                  title homeBrand
+                  title packagesHomeBrand
                   (leftTopMenu False actindex)
                   rightTopMenu 0 []
                   [h1 [htxt title, smallMutedText dayversion]]
@@ -335,7 +335,10 @@ writePackageAsHTML allpkgversions pkg = do
     putStrLn $ "Writing '" ++ htmlfile ++ "'..."
     writeReadableFile htmlfile pagestring
     putStrLn $ "Writing '" ++ htmlsrcfile ++ "'..."
-    srcdirstring <- directoryContentsPage (".." </> "PACKAGES") pkgid
+    srcdirstring <- directoryContentsPage
+                       (htmlfile, [htxt $ "Package", nbsp,
+                                   code [htxt $name pkg]])
+                       (".." </> "PACKAGES") pkgid
     writeReadableFile htmlsrcfile srcdirstring
     writeReadableFile metafile (renderPackageInfo True True True pkg)
     -- set symbolic link to recent package:
@@ -726,14 +729,14 @@ packageSpecFile = "package.json"
 
 ------------------------------------------------------------------------------
 -- Generates a HTML representation of the contents of a directory.
-directoryContentsPage :: String -> String -> IO String
-directoryContentsPage base dir = do
+directoryContentsPage :: (String,[BaseHtml]) -> String -> String -> IO String
+directoryContentsPage homebrand base dir = do
   time <- getLocalTime
   maindoc <- directoryContentsAsHTML 1 base dir
   let btbase = "../bt4"
   return $ showHtmlPage $
     bootstrapPage (favIcon btbase) (cssIncludes btbase) (jsIncludes btbase)
-      ("Browse " ++ dir) homeBrand
+      ("Browse " ++ dir) homebrand
       (leftTopMenu True (-1)) rightTopMenu 0 []
       [h1 [smallMutedText "Contents of ", htxt dir]]
       maindoc (curryDocFooter time)

@@ -234,15 +234,17 @@ showURL s | "http" `isPrefixOf` s = ehref s [htxt s]
 -- Auxiliary operations to support generated HTML pages.
 
 --- Standard HTML page for generated package descriptions.
-cpmPackagePage :: String -> [BaseHtml] -> [[BaseHtml]] -> [BaseHtml] -> IO String
+cpmPackagePage :: String -> [BaseHtml] -> [[BaseHtml]] -> [BaseHtml]
+               -> IO String
 cpmPackagePage title sidenav apilinks maindoc = do
   let htmltitle = [h1 [smallMutedText "Curry Package ", htxt title]]
   time <- getLocalTime
   let btbase = "../bt4"
   return $ showHtmlPage $
     bootstrapPage (favIcon btbase) (cssIncludes btbase) (jsIncludes btbase)
-                  title homeBrand
-                  (leftTopMenu True (-1)) (apilinks ++ rightTopMenu) 4 sidenav
+                  title ("?", [htxt $ "Package", nbsp, code [htxt title]])
+                  (apilinks ++ [[nbsp, nbsp, nbsp]] ++ leftTopMenu True (-1))
+                  rightTopMenu 4 sidenav
                   htmltitle maindoc (curryDocFooter time)
 
 
@@ -257,6 +259,10 @@ curryHomeURL = "http://www.curry-lang.org"
 --- The URL of CPM
 cpmHomeURL :: String
 cpmHomeURL = "http://www.curry-lang.org/tools/cpm"
+
+--- The URL of the package repository
+cpmRepositoryURL :: String
+cpmRepositoryURL = "https://www-ps.informatik.uni-kiel.de/~cpm/index.html"
 
 -- The URL of the favicon relative to the base directory of BT4.
 favIcon :: String -> String
@@ -273,8 +279,8 @@ jsIncludes btdir =
    ["https://code.jquery.com/jquery-3.4.1.slim.min.js",
     btdir </> "js/bootstrap.bundle.min.js"]
 
-homeBrand :: (String,[BaseHtml])
-homeBrand = (cpmHomeURL, [htxt "Curry Package Repository"])
+packagesHomeBrand :: (String,[BaseHtml])
+packagesHomeBrand = (cpmRepositoryURL, [htxt "Curry Packages"])
 
 --- The standard left top menu.
 --- The first argument is true if we are inside a package documentation.
@@ -282,7 +288,7 @@ homeBrand = (cpmHomeURL, [htxt "Curry Package Repository"])
 --- (negative value = no active link)
 leftTopMenu :: Bool -> Int -> [[BaseHtml]]
 leftTopMenu inpkg actindex =
-  [ [mhref 0 "index.html"  "Packages"]
+  [ [mhref 0 "index.html"  "All Packages"]
   , [mhref 1 "indexv.html" "Versions"]
   , [mhref 2 "indexc.html" "Categories"]
   ]
@@ -293,7 +299,8 @@ leftTopMenu inpkg actindex =
 --- The standard right top menu.
 rightTopMenu :: [[BaseHtml]]
 rightTopMenu =
-  [ [ehrefNav curryHomeURL [htxt "Curry Homepage"]]
+  [ [ehrefNav cpmHomeURL   [htxt "Curry Package Manager"]]
+  , [ehrefNav curryHomeURL [htxt "Curry Homepage"]]
   ]
 
 --------------------------------------------------------------------------
