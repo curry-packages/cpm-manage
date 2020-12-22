@@ -2,8 +2,7 @@
 --- Definition of some global constants used by the CPM manager.
 ------------------------------------------------------------------------------
 
-module CPM.Manage.Config
-  where
+module CPM.Manage.Config where
 
 import System.FilePath  ( (</>) )
 
@@ -14,7 +13,7 @@ import System.FilePath  ( (</>) )
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (version of 10/12/2020)"
+  bannerText = "cpm-manage (version of 22/12/2020)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Base URL of CPM documentations

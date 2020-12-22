@@ -77,7 +77,7 @@ main = do
     ["config"]        -> printConfig config
     ["--help"]        -> putStrLn helpText
     ["-h"]            -> putStrLn helpText
-    _                 -> do putStrLn $ "Wrong arguments!\n"
+    _                 -> do putStrLn $ "Illegal arguments: " ++ unwords args
                             putStrLn helpText
                             exitWith 1
 
