@@ -69,8 +69,8 @@ main = do
     ["add"]           -> addNewPackage config rcdefs True
     ["addnotag"]      -> addNewPackage config rcdefs False
     ["update"]        -> updatePackage config rcdefs
-    ["showgraph"]     -> showAllPackageDependencies config ""
-    ["showgraph",p]   -> showAllPackageDependencies config p
+    ["showgraph"]     -> visualizePackageDependencies config ""
+    ["showgraph",p]   -> visualizePackageDependencies config p
     ["writedeps"]     -> writeAllPackageDependencies config
     ["copydocs"]      -> copyPackageDocumentations config packageDocDir
     ["copydocs",d]    -> getAbsolutePath d >>= copyPackageDocumentations config
@@ -592,10 +592,12 @@ updatePackage config rcdefs = do
   fromEL $ addPackageToRepository config "." True False
 
 ------------------------------------------------------------------------------
--- Show package dependencies as dot graph
-showAllPackageDependencies :: Config -> String -> IO ()
-showAllPackageDependencies cfg pname = do
-  pkgs <- getAllPackages cfg
+-- Visualize package dependencies as dot graph.
+-- The second argument is the name of the package to be visualized or empty
+-- if all packages should be visualized.
+visualizePackageDependencies :: Config -> String -> IO ()
+visualizePackageDependencies cfg pname = do
+  (_,pkgs) <- getAllPackageSpecs cfg False
   let alldeps  = map (\p -> (name p, map (\ (Dependency p' _) -> p')
                                          (dependencies p))) pkgs
       deps     = if null pname then alldeps

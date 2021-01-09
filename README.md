@@ -1,4 +1,5 @@
-# cpm-manage - Tools to manage the main repository of the Curry Package Manager
+cpm-manage - Tools to manage the main repository of the Curry Package Manager
+=============================================================================
 
 This package contains tools to manage the central repository
 of the Curry Package Manager CPM.
@@ -38,3 +39,10 @@ The command
 
 generates HTML pages for all packages of the central repository.
 
+The command
+
+    > cpm-manage showgraph PKG
+
+visualizes the dependencies of package `PGK` as a dot graph.
+Thus, it shows packages that directly and indirectly uses `PGK`
+and it shows all directly and indirectly packages used by `PKG`.
