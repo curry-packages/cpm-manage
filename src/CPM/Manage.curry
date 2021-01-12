@@ -13,10 +13,10 @@ import Data.List          ( (\\), groupBy, isPrefixOf, intercalate, intersect
                           , isSuffixOf, nub, nubBy, partition, sort, sortBy
                           , sum, union )
 
+import Data.GraphViz
 import Data.Time          ( CalendarTime, getLocalTime, toDayString )
 import HTML.Base
 import HTML.Styles.Bootstrap4
-import ShowDotGraph
 import System.Directory   ( createDirectoryIfMissing, doesDirectoryExist
                           , doesFileExist, getAbsolutePath, getCurrentDirectory
                           , getDirectoryContents, getTemporaryDirectory )
@@ -232,6 +232,7 @@ writePackageIndexAsHTML config cpmindexdir = do
    createDirectoryIfMissing True packageHtmlDir
    system $ "chmod 755 " ++ packageHtmlDir
    (allpkgversions,newestpkgs) <- getAllPackageSpecs config False
+   writePackageDependencies config newestpkgs
    let stats = pkgStatistics allpkgversions newestpkgs
    putStrLn "Reading all package specifications..."
    allnpkgs <- fromEL $ mapM (readPackageFromRepository config) newestpkgs
@@ -337,7 +338,7 @@ writePackageAsHTML allpkgversions pkg = do
     putStrLn $ "Writing '" ++ htmlsrcfile ++ "'..."
     srcdirstring <- directoryContentsPage
                        (htmlfile, [htxt $ "Package", nbsp,
-                                   code [htxt $name pkg]])
+                                   code [htxt $ name pkg]])
                        (".." </> "PACKAGES") pkgid
     writeReadableFile htmlsrcfile srcdirstring
     writeReadableFile metafile (renderPackageInfo True True True pkg)
@@ -592,20 +593,45 @@ updatePackage config rcdefs = do
   fromEL $ addPackageToRepository config "." True False
 
 ------------------------------------------------------------------------------
+-- Writes the dependencies of packages as an HTML page for each package
+-- with a dot graph in SVG.
+writePackageDependencies :: Config -> [Package] -> IO ()
+writePackageDependencies cfg pkgs =
+  inDirectory packageHtmlDir $ mapM_ writeDepsOfPackage (map name pkgs)
+ where
+  writeDepsOfPackage pname = do
+    let dotgraph     = packageDependenciesAsGraph pkgs pname
+        htmldepsfile = pname ++ "-deps.html"
+    putStrLn $ "Writing '" ++ htmldepsfile ++ "'..."
+    (_,svgtxt,_) <- evalCmd "/usr/bin/dot" ["-Tsvg"] (showDotGraph dotgraph)
+    depspage <- subdirHtmlPage ("Dependencies of " ++ pname)
+                  (pname ++ ".html",
+                   [htxt $ "Package", nbsp, code [htxt $ pname]])
+                  [h1 [smallMutedText "Dependencies of ", htxt pname]]
+                  [block [htmlText svgtxt]]
+    writeReadableFile htmldepsfile depspage
+
 -- Visualize package dependencies as dot graph.
 -- The second argument is the name of the package to be visualized or empty
 -- if all packages should be visualized.
 visualizePackageDependencies :: Config -> String -> IO ()
 visualizePackageDependencies cfg pname = do
   (_,pkgs) <- getAllPackageSpecs cfg False
+  putStrLn "Show dot graph..."
+  viewDotGraph (packageDependenciesAsGraph pkgs pname)
+
+-- Translate package dependencies into a dot graph.
+-- The first argument is the list of all packages.
+-- The second argument is the name of the package to be visualized or empty
+-- if all packages should be visualized.
+packageDependenciesAsGraph :: [Package] -> String -> DotGraph
+packageDependenciesAsGraph pkgs pname =
   let alldeps  = map (\p -> (name p, map (\ (Dependency p' _) -> p')
                                          (dependencies p))) pkgs
       deps     = if null pname then alldeps
                                else depsOnPkgs alldeps [pname] [] [] `union`
                                     depsOfPkgs alldeps [pname] [] []
-      dotgraph = depsToGraph pname deps
-  putStrLn $ "Show dot graph..."
-  viewDotGraph dotgraph
+  in depsToGraph pname deps
 
 -- Type of package dependencies (based only on package names).
 type PkgDeps = [(String, [String])]
@@ -629,7 +655,7 @@ depsOfPkgs alldeps (p:ps) seenps deps =
 
 depsToGraph :: String -> PkgDeps -> DotGraph
 depsToGraph pname cpmdeps =
-  dgraph "CPM Dependencies"
+  dgraph "Package Dependencies"
     (map (\s -> Node s (if pname==s then [("style","filled"),("fillcolor","red")] else []))
          (nub (map fst cpmdeps ++ concatMap snd cpmdeps)))
     (map (\ (s,t) -> Edge s t [])
@@ -733,14 +759,22 @@ packageSpecFile = "package.json"
 -- Generates a HTML representation of the contents of a directory.
 directoryContentsPage :: (String,[BaseHtml]) -> String -> String -> IO String
 directoryContentsPage homebrand base dir = do
-  time <- getLocalTime
   maindoc <- directoryContentsAsHTML 1 base dir
+  subdirHtmlPage ("Browse " ++ dir) homebrand
+                 [h1 [smallMutedText "Contents of ", htxt dir]] maindoc 
+
+-- Generates a HTML page in a subdirectory of CPM with a given page title,
+-- home brand, header and contents.
+subdirHtmlPage :: String -> (String,[BaseHtml]) -> [BaseHtml] -> [BaseHtml]
+               -> IO String
+subdirHtmlPage pagetitle homebrand header maindoc = do
+  time <- getLocalTime
   let btbase = "../bt4"
   return $ showHtmlPage $
     bootstrapPage (favIcon btbase) (cssIncludes btbase) (jsIncludes btbase)
-      ("Browse " ++ dir) homebrand
+      pagetitle homebrand
       (leftTopMenu True (-1)) rightTopMenu 0 []
-      [h1 [smallMutedText "Contents of ", htxt dir]]
+      header
       maindoc (curryDocFooter time)
 
 directoryContentsAsHTML :: Int -> String -> String -> IO [BaseHtml]

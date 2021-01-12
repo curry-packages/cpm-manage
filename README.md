@@ -46,3 +46,12 @@ The command
 visualizes the dependencies of package `PGK` as a dot graph.
 Thus, it shows packages that directly and indirectly uses `PGK`
 and it shows all directly and indirectly packages used by `PKG`.
+
+
+Required software
+-----------------
+
+The following software should be installed in order to use cpm-manage:
+
+- `/usr/bin/dot` for generating dependency graphs via Graphviz
+- `pandoc` for formatting README files

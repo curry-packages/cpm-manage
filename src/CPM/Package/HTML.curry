@@ -44,7 +44,8 @@ packageToHTML allpkgversions pkg = do
                     then [ehref ("../" ++ readmefile) [htxt "README"]]
                     else []) ++
                  [ehref (pkgid ++ ".txt") [htxt "Package specification"]] ++
-                 apilinks
+                 apilinks ++
+                 [ehref (pname ++ "-deps.html") [htxt "Package dependencies"]]
       mbdocurl = if hasapidir then Just (cpmDocURL ++ pkgid) else Nothing
       sidenav =
         [ulistWithClass "list-group" "list-group-item"
