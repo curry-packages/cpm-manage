@@ -13,7 +13,7 @@ import System.FilePath  ( (</>) )
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (version of 22/12/2020)"
+  bannerText = "cpm-manage (Version of 24/01/2021)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Base URL of CPM documentations
