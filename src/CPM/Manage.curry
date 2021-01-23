@@ -14,7 +14,8 @@ import Data.List          ( (\\), groupBy, isPrefixOf, intercalate, intersect
                           , sum, union )
 
 import Data.GraphViz
-import Data.Time          ( CalendarTime, getLocalTime, toDayString )
+import Data.Time          ( CalendarTime, compareCalendarTime, ctDay, ctMonth
+                          , ctYear, getLocalTime, toDayString )
 import HTML.Base
 import HTML.Styles.Bootstrap4
 import System.Directory   ( createDirectoryIfMissing, doesDirectoryExist
@@ -243,11 +244,18 @@ writePackageIndexAsHTML config cpmindexdir = do
                     (map reverse
                        (sortBy (\pg1 pg2 -> name (head pg1) <= name (head pg2))
                                allpkgversions)))
-   writePackageIndex allvpkgs "indexv.html" stats 1
+   allvpkgtimes <- mapM (\p -> getUploadTime p >>= \t -> return (p,t)) allvpkgs
+   let allvpkgsorted = map fst (sortBy comparePkgWithTime allvpkgtimes)
+   writePackageIndex allvpkgsorted "indexv.html" stats 1
    writeCategoryIndexAsHTML allnpkgs
    mapM_ (writePackageAsHTML allpkgversions) allvpkgs
    --mapM_ (writePackageAsHTML allpkgversions) $ take 3 allnpkgs
  where
+  comparePkgWithTime (_,mt1) (_,mt2) =
+    maybe False
+          (\t1 -> maybe True (\t2 -> compareCalendarTime t1 t2 == GT) mt2)
+          mt1
+
   writePackageIndex allpkgs indexfile statistics actindex = do
     putStrLn $ "Writing '" ++ indexfile ++ "'..."
     indextable <- packageInfosAsHtmlTable allpkgs
@@ -257,7 +265,10 @@ writePackageIndexAsHTML config cpmindexdir = do
                                 [htxt $ if actindex==0 then name p
                                                        else packageId p])
                        allpkgs
-        pindex   = [h2 [htxt "Package index:"], par (hitems pkglinks)]
+        pindex   = [h2 [htxt "Package index:"], par (hitems pkglinks),
+                    h2 [htxt $ if actindex == 0
+                                 then "Packages sorted by name"
+                                 else "All versions sorted by upload time"]]
     pagestring <- cpmIndexPage ptitle (pindex ++ [indextable] ++ statistics)
                                actindex
     writeReadableFile indexfile pagestring
@@ -363,30 +374,26 @@ packageInfosAsHtmlTable pkgs = do
   rows <- mapM formatPkgAsRow pkgs
   return $ borderedHeadedTable
     (map ((:[]) . htxt)
-         ["Name", "API", "Doc","Executable","Synopsis", "Version"])
+         ["Name","Executable","Synopsis", "Version", "Upload date"])
     rows
  where
   formatPkgAsRow :: Package -> IO [[BaseHtml]]
   formatPkgAsRow pkg = do
-    hasapidir <- doesDirectoryExist apiDir
-    hasapiidx <- doesFileExist $ apiDir </> indexhtml
-    let docref = maybe [] (\r -> [hrefPrimBadge r [htxt "PDF"]]) (manualURL pkg)
+    ptime <- getUploadTime pkg
     return
       [ [hrefPrimSmBlock (packageHtmlDir </> pkgid ++ ".html")
                          [htxt $ name pkg]]
-      , if hasapiidx then [ehrefPrimBadge (cpmDocURL ++ pkgid </> indexhtml)
-                                          [htxt "API doc"]]
-                     else [nbsp]
-      , if hasapidir then docref else [nbsp]
       , intercalate [nbsp]
           (map (\ (PackageExecutable n _ _) -> [kbdInput [htxt n]])
                (executableSpec pkg))
       , [htxt $ synopsis pkg]
-      , [htxt $ showVersion (version pkg)] ]
+      , [htxt $ showVersion (version pkg)]
+      , maybe [nbsp] (\t -> [htxt $ toDate t]) ptime
+      ]
    where
     pkgid     = packageId pkg
-    apiDir    = "DOC" </> pkgid
-    indexhtml = "index.html"
+    toDate ct = show (ctYear ct) ++ show2 (ctMonth ct) ++ show2 (ctDay ct)
+     where show2 i = '-' : if i < 10 then '0' : show i else show i
 
 ------------------------------------------------------------------------------
 -- Generate HTML documentation of all packages in the central repository
@@ -596,7 +603,7 @@ updatePackage config rcdefs = do
 -- Writes the dependencies of packages as an HTML page for each package
 -- with a dot graph in SVG.
 writePackageDependencies :: Config -> [Package] -> IO ()
-writePackageDependencies cfg pkgs =
+writePackageDependencies _ pkgs =
   inDirectory packageHtmlDir $ mapM_ writeDepsOfPackage (map name pkgs)
  where
   writeDepsOfPackage pname = do

@@ -9,10 +9,12 @@ module CPM.Package.HTML
 import Data.Char        ( isSpace )
 import Data.List        ( find, intercalate, intersperse, isPrefixOf, splitOn )
 
-import Data.Time        ( CalendarTime, calendarTimeToString, getLocalTime )
+import Data.Time        ( CalendarTime, calendarTimeToString, getLocalTime
+                        , toCalendarTime )
 import HTML.Base
 import HTML.Styles.Bootstrap4
-import System.Directory ( doesDirectoryExist, doesFileExist )
+import System.Directory ( doesDirectoryExist, doesFileExist
+                        , getModificationTime )
 import System.FilePath  ( (</>), replaceExtension )
 import System.IOExts    ( readCompleteFile )
 import Text.CSV         ( readCSV )
@@ -31,6 +33,7 @@ packageToHTML allpkgversions pkg = do
   hasreadme  <- doesFileExist readmefile
   hasreadmei <- doesFileExist readmeifile
   readmei    <- if hasreadmei then readFile readmeifile else return ""
+  mbpkgtime  <- getUploadTime pkg
   mbtested   <- getTestResults pkgid
   let apilinks = (if hasaindex then [ehref (cpmDocURL ++ pkgid </> indexhtml)
                                            [htxt "API documentation"]]
@@ -54,7 +57,11 @@ packageToHTML allpkgversions pkg = do
                    [("Further infos:",
                      [ulistWithClass "nav flex-column" "nav-item"
                                      (map addNavLink infomenu)])]))] ++
-        (maybe [] (\s -> [blockstyle "badge badge-success" [htxt s]]) mbtested)
+        (maybe [] (\t -> [blockstyle "badge badge-secondary"
+                            [htxt $ "Uploaded at " ++ calendarTimeToString t]])
+                  mbpkgtime) ++
+        (maybe [] (\s -> [blockstyle "badge badge-success" [htxt s]])
+                  mbtested)
   let pkgdesc =  (if hasreadmei then [htmlText readmei] else []) ++
                  [hrule,
                   h2 [htxt "Download"],
@@ -78,6 +85,18 @@ packageToHTML allpkgversions pkg = do
                   [ehref (".." </> "PACKAGES" </> pkgtar) [htxt pkgtar],
                    htxt " [", href (pkgid ++ "-src.html") [htxt "browse"],
                    htxt "]"])]
+
+-- Get the upload time of the package (i.e., the time of the tar file).
+getUploadTime :: Package -> IO (Maybe CalendarTime)
+getUploadTime pkg = do
+  hastar <- doesFileExist pkgtarpath
+  if hastar then do ct <- getModificationTime pkgtarpath
+                    lt <- toCalendarTime ct
+                    return $ Just lt
+            else return Nothing
+ where
+  pkgtar     = packageId pkg ++ ".tar.gz"
+  pkgtarpath = "PACKAGES" </> pkgtar
 
 -- Get some string describing a successful test.
 getTestResults :: String -> IO (Maybe String)
