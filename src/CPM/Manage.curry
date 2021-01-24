@@ -237,7 +237,7 @@ writePackageIndexAsHTML config cpmindexdir = do
    let stats = pkgStatistics allpkgversions newestpkgs
    putStrLn "Reading all package specifications..."
    allnpkgs <- fromEL $ mapM (readPackageFromRepository config) newestpkgs
-   writePackageIndex allnpkgs "index.html" stats 0
+   writePackageIndex allnpkgs allnpkgs "index.html" stats 0
    allvpkgs <- fromEL $
                 mapM (readPackageFromRepository config)
                  (concat
@@ -246,7 +246,7 @@ writePackageIndexAsHTML config cpmindexdir = do
                                allpkgversions)))
    allvpkgtimes <- mapM (\p -> getUploadTime p >>= \t -> return (p,t)) allvpkgs
    let allvpkgsorted = map fst (sortBy comparePkgWithTime allvpkgtimes)
-   writePackageIndex allvpkgsorted "indexv.html" stats 1
+   writePackageIndex allvpkgs allvpkgsorted "indexv.html" stats 1
    writeCategoryIndexAsHTML allnpkgs
    mapM_ (writePackageAsHTML allpkgversions) allvpkgs
    --mapM_ (writePackageAsHTML allpkgversions) $ take 3 allnpkgs
@@ -256,15 +256,15 @@ writePackageIndexAsHTML config cpmindexdir = do
           (\t1 -> maybe True (\t2 -> compareCalendarTime t1 t2 == GT) mt2)
           mt1
 
-  writePackageIndex allpkgs indexfile statistics actindex = do
+  writePackageIndex indexpkgs listpkgs indexfile statistics actindex = do
     putStrLn $ "Writing '" ++ indexfile ++ "'..."
-    indextable <- packageInfosAsHtmlTable allpkgs
+    indextable <- packageInfosAsHtmlTable listpkgs
     let ptitle   = "Curry Packages in the CPM Repository"
         pkglinks = map (\p -> hrefPrimBadge
                                 (packageHtmlDir </> packageId p ++ ".html")
                                 [htxt $ if actindex==0 then name p
                                                        else packageId p])
-                       allpkgs
+                       indexpkgs
         pindex   = [h2 [htxt "Package index:"], par (hitems pkglinks),
                     h2 [htxt $ if actindex == 0
                                  then "Packages sorted by name"
