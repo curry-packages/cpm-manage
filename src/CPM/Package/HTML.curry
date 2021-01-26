@@ -309,8 +309,8 @@ packagesHomeBrand = (cpmRepositoryURL, [htxt "Curry Packages"])
 leftTopMenu :: Bool -> Int -> [[BaseHtml]]
 leftTopMenu inpkg actindex =
   [ [mhref 0 "index.html"  "All Packages"]
-  , [mhref 1 "indexv.html" "Versions"]
   , [mhref 2 "indexc.html" "Categories"]
+  , [mhref 1 "indexv.html" "Recent Uploads"]
   ]
  where
   mhref i url txt = (if i == actindex then hrefNavActive else hrefNav)
