@@ -13,11 +13,8 @@
         "graphviz" : ">= 3.0.0, < 4.0.0",
         "html2"    : ">= 3.0.0, < 4.0.0",
         "io-extra" : ">= 3.0.0, < 4.0.0",
+        "process"  : ">= 3.0.0, < 4.0.0",
         "time"     : ">= 3.0.0, < 4.0.0"
-    },
-    "compilerCompatibility": {
-        "pakcs": ">= 3.0.0, < 4.0.0",
-        "kics2": ">= 3.0.0, < 4.0.0"
     },
     "exportedModules": [ "CPM.Manage" ],
     "license": "BSD-3-Clause",
