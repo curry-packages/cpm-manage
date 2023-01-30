@@ -18,10 +18,12 @@ import Data.Time          ( CalendarTime, compareCalendarTime, ctDay, ctMonth
                           , ctYear, getLocalTime, toDayString )
 import HTML.Base
 import HTML.Styles.Bootstrap4
+import System.CurryPath   ( curryModulesInDirectory, stripCurrySuffix )
 import System.Directory   ( createDirectoryIfMissing, doesDirectoryExist
                           , doesFileExist, getAbsolutePath, getCurrentDirectory
-                          , getDirectoryContents, getTemporaryDirectory )
-import System.FilePath    ( (</>), replaceExtension )
+                          , getDirectoryContents, getTemporaryDirectory
+                          , setCurrentDirectory )
+import System.FilePath    ( (</>), replaceExtension, takeExtension )
 import System.IOExts      ( evalCmd, readCompleteFile )
 import System.Environment ( getArgs )
 import System.Process     ( getPID, exitWith, system )
@@ -30,9 +32,9 @@ import Text.CSV           ( readCSV, writeCSVFile )
 import CPM.Config              ( Config, repositoryDir, packageInstallDir
                                , readConfigurationWith, showConfiguration )
 import CPM.ErrorLogger
-import CPM.FileUtil            ( copyDirectory, inDirectory, quote
-                               , recreateDirectory
-                               , removeDirectoryComplete )
+import CPM.FileUtil            ( cleanTempDir, copyDirectory, inDirectory
+                               , inTempDir, quote, recreateDirectory
+                               , removeDirectoryComplete, tempDir )
 import CPM.Package
 import CPM.PackageCache.Global ( acquireAndInstallPackageFromSource
                                , checkoutPackage )
@@ -73,6 +75,7 @@ main = do
     ["showgraph"]     -> visualizePackageDependencies config ""
     ["showgraph",p]   -> visualizePackageDependencies config p
     ["writedeps"]     -> writeAllPackageDependencies config
+    ["writemods"]     -> writeAllPackageModules config rcdefs
     ["copydocs"]      -> copyPackageDocumentations config packageDocDir
     ["copydocs",d]    -> getAbsolutePath d >>= copyPackageDocumentations config
     ["config"]        -> printConfig config
@@ -137,6 +140,7 @@ helpText = banner ++ unlines
   , "showgraph      : visualize all package dependencies as a dot graph"
   , "showgraph <p>  : visualize dependencies for package <p> as a dot graph"
   , "writedeps      : write all package dependencies as CSV file 'pkgs.csv'"
+  , "writemods      : write modules exported by package into 'pkgmods.csv'"
   , "copydocs [<d> ]: copy latest package documentations"
   , "                 from <d> (default: '" ++ packageDocDir ++ "')"
   , "                 to '" ++ currygleDocDir ++ "'"
@@ -672,11 +676,56 @@ depsToGraph pname cpmdeps =
 writeAllPackageDependencies :: Config -> IO ()
 writeAllPackageDependencies cfg = do
   (_,pkgs) <- getAllPackageSpecs cfg True
-  let alldeps = map (\p -> (name p, map (\ (Dependency p' _) -> p')
-                                        (dependencies p)))
+  let alldeps = map (\p -> name p : showVersion (version p) :
+                           map (\ (Dependency p' _) -> p') (dependencies p))
                     pkgs
-  writeCSVFile "pkgs.csv" (map (\ (p,ds) -> p:ds) alldeps)
-  putStrLn $ "Package dependencies written to 'pkgs.csv'"
+  let outfile = "pkgs.csv"
+  writeCSVFile outfile alldeps
+  putStrLn $ "Package dependencies written to '" ++ outfile ++ "'"
+
+------------------------------------------------------------------------------
+-- For all packages, write the exported modules into CSV file 'pkgmods.csv'.
+-- The exported modules are taken either from the package specification or
+-- these are modules of a package if such a specificaiton is missing.
+writeAllPackageModules :: Config -> [(String,String)] -> IO ()
+writeAllPackageModules cfg rcdefs = do
+  (allpkgversions,allcompatpkgs) <- getAllPackageSpecs cfg True
+  putStr "Reading packages:"
+  allmods <- mapM (\p -> do mods <- expMods p
+                            return (name p : showVersion (version p) : mods))
+                  allcompatpkgs
+  let allpkgs  = concatMap (take 1) allpkgversions
+      incnames = map name allpkgs \\ map name allcompatpkgs
+      incpats  = map (\pn -> [pn,"???"]) (sort incnames)
+  let outfile = "pkgmods.csv"
+  writeCSVFile outfile (allmods ++ incpats)
+  putStrLn $ "\nPackage dependencies written to '" ++ outfile ++ "'"
+  cleanTempDir
+ where
+  expMods p = do
+    putStr $ " " ++ name p
+    pkg <- fromEL $ readPackageFromRepository cfg p
+    let expmods = exportedModules pkg
+    if null expmods
+      then do pkgdir <- checkOutPkgInDir rcdefs (name p) (version p)
+              dirmods <- mapM curryModulesInDirectory
+                              (map (pkgdir </>) (sourceDirsOf pkg))
+              return (concat dirmods)
+      else return expmods
+
+checkOutPkgInDir :: [(String,String)] -> String -> Version -> IO String
+checkOutPkgInDir rcdefs pname pvers = inTempDir $ do
+  cdir   <- getCurrentDirectory
+  let cpmcall = cpmCall rcdefs
+      codir   = cdir </> pname
+      cmd     = unwords $
+                  [ "rm -rf", codir, "&&"
+                  , cpmcall, "-v quiet", "checkout", pname, showVersion pvers ]
+  putStr "*"
+  ecode <- system cmd
+  when (ecode>0) $
+    error $ "COULD NOT CHECKOUT PACKAGE '" ++ pname ++ "'!"
+  return codir
 
 ------------------------------------------------------------------------------
 -- Copy all package documentations from directory `packagedocdir` into
