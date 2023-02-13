@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------------
---- This module contains some operations to generate HTML representations
---- of packages.
+--- This module contains operations to generate HTML representations of
+--- packages.
 ------------------------------------------------------------------------------
 
 module CPM.Package.HTML
@@ -20,9 +20,10 @@ import System.IOExts    ( readCompleteFile )
 import Text.CSV         ( readCSV )
 
 import CPM.Package
-import CPM.Package.Helpers     ( renderPackageInfo )
+import CPM.Package.Helpers  ( renderPackageInfo )
 
-import CPM.Manage.Config       ( cpmDocURL, kics2URL, pakcsURL )
+import CPM.Manage.Config    ( curryHomeURL, kics2URL, pakcsURL, curry2goURL
+                            , cpmHomeURL, cpmRepositoryURL, cpmDocURL )
 
 ------------------------------------------------------------------------------
 --- Generate HTML page string for a given package.
@@ -115,7 +116,7 @@ getTestResults pkgid = do
 --- Manual URL of a package (if specified in package).
 manualURL :: Package -> Maybe String
 manualURL pkg = case documentation pkg of
-  Nothing -> Nothing
+  Nothing                                 -> Nothing
   Just (PackageDocumentation _ docmain _) ->
     Just (cpmDocURL ++ packageId pkg </> replaceExtension docmain ".pdf")
 
@@ -240,6 +241,9 @@ showCompilerReq (CompilerCompatibility cc vcs)
   | cc == "kics2"
   = ehrefWarnBadge kics2URL
           [htxt cc, nbsp, showConstraintBadge (showVersionConstraints vcs)]
+  | cc == "curry2go"
+  = ehrefInfoBadge curry2goURL
+          [htxt cc, nbsp, showConstraintBadge (showVersionConstraints vcs)]
   | otherwise
   = textstyle "badge badge-secondary" (cc ++ " " ++ showVersionConstraints vcs)
 
@@ -272,18 +276,6 @@ cpmPackagePage title sidenav apilinks maindoc = do
 smallMutedText :: String -> BaseHtml
 smallMutedText s = htmlStruct "small" [("class","text-muted")] [htxt s]
 
---- The URL of the Curry homepage
-curryHomeURL :: String
-curryHomeURL = "http://www.curry-lang.org"
-
---- The URL of CPM
-cpmHomeURL :: String
-cpmHomeURL = "http://www.curry-lang.org/tools/cpm"
-
---- The URL of the package repository
-cpmRepositoryURL :: String
-cpmRepositoryURL = "https://www-ps.informatik.uni-kiel.de/~cpm/index.html"
-
 -- The URL of the favicon relative to the base directory of BT4.
 favIcon :: String -> String
 favIcon btdir = btdir </> "img" </> "favicon.ico"
@@ -300,7 +292,7 @@ jsIncludes btdir =
     btdir </> "js/bootstrap.bundle.min.js"]
 
 packagesHomeBrand :: (String,[BaseHtml])
-packagesHomeBrand = (cpmRepositoryURL, [htxt "Curry Packages"])
+packagesHomeBrand = (cpmRepositoryURL </> "index.html", [htxt "Curry Packages"])
 
 --- The standard left top menu.
 --- The first argument is true if we are inside a package documentation.
