@@ -13,6 +13,8 @@ import Data.Time        ( CalendarTime, calendarTimeToString, getLocalTime
                         , toCalendarTime )
 import HTML.Base
 import HTML.Styles.Bootstrap4
+import Language.Curry.Resources ( curryHomeURL, kics2URL, pakcsURL, curry2goURL
+                        , cpmHomeURL, curryPackagesURL, curryPackagesDocURL )
 import System.Directory ( doesDirectoryExist, doesFileExist
                         , getModificationTime )
 import System.FilePath  ( (</>), replaceExtension )
@@ -22,8 +24,6 @@ import Text.CSV         ( readCSV )
 import CPM.Package
 import CPM.Package.Helpers  ( renderPackageInfo )
 
-import CPM.Manage.Config    ( curryHomeURL, kics2URL, pakcsURL, curry2goURL
-                            , cpmHomeURL, cpmRepositoryURL, cpmDocURL )
 
 ------------------------------------------------------------------------------
 --- Generate HTML page string for a given package.
@@ -36,9 +36,10 @@ packageToHTML allpkgversions pkg = do
   readmei    <- if hasreadmei then readFile readmeifile else return ""
   mbpkgtime  <- getUploadTime pkg
   mbtested   <- getTestResults pkgid
-  let apilinks = (if hasaindex then [ehref (cpmDocURL ++ pkgid </> indexhtml)
-                                           [htxt "API documentation"]]
-                               else []) ++
+  let apilinks = (if hasaindex
+                    then [ehref (curryPackagesDocURL ++ pkgid </> indexhtml)
+                                [htxt "API documentation"]]
+                    else []) ++
                  (if hasapidir
                     then maybe []
                                (\mref -> [href mref [htxt "Manual (PDF)"]])
@@ -50,7 +51,8 @@ packageToHTML allpkgversions pkg = do
                  [ehref (pkgid ++ ".txt") [htxt "Package specification"]] ++
                  apilinks ++
                  [ehref (pname ++ "-deps.html") [htxt "Package dependencies"]]
-      mbdocurl = if hasapidir then Just (cpmDocURL ++ pkgid) else Nothing
+      mbdocurl = if hasapidir then Just $ curryPackagesDocURL ++ pkgid
+                              else Nothing
       sidenav =
         [ulistWithClass "list-group" "list-group-item"
            (map (\ (t,c) -> (h5 [htxt t] : c))
@@ -118,7 +120,8 @@ manualURL :: Package -> Maybe String
 manualURL pkg = case documentation pkg of
   Nothing                                 -> Nothing
   Just (PackageDocumentation _ docmain _) ->
-    Just (cpmDocURL ++ packageId pkg </> replaceExtension docmain ".pdf")
+    Just (curryPackagesDocURL ++ packageId pkg </>
+          replaceExtension docmain ".pdf")
 
 ------------------------------------------------------------------------------
 --- Renders information about a package as HTML description list.
@@ -292,7 +295,7 @@ jsIncludes btdir =
     btdir </> "js/bootstrap.bundle.min.js"]
 
 packagesHomeBrand :: (String,[BaseHtml])
-packagesHomeBrand = (cpmRepositoryURL </> "index.html", [htxt "Curry Packages"])
+packagesHomeBrand = (curryPackagesURL </> "index.html", [htxt "Curry Packages"])
 
 --- The standard left top menu.
 --- The first argument is true if we are inside a package documentation.
