@@ -4,7 +4,7 @@
 --- Run "cpm-manage -h" to see all options.
 ---
 --- @author Michael Hanus
---- @version February 2023
+--- @version April 2023
 ------------------------------------------------------------------------------
 
 module CPM.Manage ( main )
@@ -57,7 +57,7 @@ import CPM.Package.HTML
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (Version of 14/02/2023)"
+  bannerText = "cpm-manage (Version of 11/04/2023)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Subdirectory containing HTML files for each package
@@ -297,10 +297,10 @@ writePackageIndexAsHTML config cpmindexdir = do
     putStrLn $ "Writing '" ++ indexfile ++ "'..."
     indextable <- packageInfosAsHtmlTable listpkgs
     let ptitle   = "Curry Packages in the CPM Repository"
+        refOfPkg = if actindex == 0 then name else packageId
         pkglinks = map (\p -> hrefPrimBadge
-                                (packageHtmlDir </> packageId p ++ ".html")
-                                [htxt $ if actindex==0 then name p
-                                                       else packageId p])
+                                (packageHtmlDir </> refOfPkg p ++ ".html")
+                                [htxt $ refOfPkg p])
                        indexpkgs
         pindex   = [h2 [htxt "Package index:"], par (hitems pkglinks),
                     h2 [htxt $ if actindex == 0
