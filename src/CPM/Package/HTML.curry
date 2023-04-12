@@ -50,7 +50,7 @@ packageToHTML allpkgversions pkg = do
                     else []) ++
                  [ehref (pkgid ++ ".txt") [htxt "Package specification"]] ++
                  apilinks ++
-                 [ehref (pname ++ "-deps.html") [htxt "Package dependencies"]]
+                 [href (pname ++ "-deps.html") [htxt "Package dependencies"]]
       mbdocurl = if hasapidir then Just $ curryPackagesDocURL ++ pkgid
                               else Nothing
       sidenav =
@@ -166,9 +166,9 @@ packageInfoAsHTML allpkgversions pkg mbdocurl =
 
   dep2html dep@(Dependency dp vcs) =
     maybe (htxt $ showDependency dep)
-          (\nps -> hrefPrimBadge (packageId (head nps) ++ ".html")
-                     [htxt dp, nbsp,
-                      showConstraintBadge (showVersionConstraints vcs)])
+          (\_ -> hrefPrimBadge (dp ++ ".html")
+                   [htxt dp, nbsp,
+                    showConstraintBadge (showVersionConstraints vcs)])
           (find (\pgs -> not (null pgs) && name (head pgs) == dp)
                 allpkgversions)
 
@@ -263,16 +263,17 @@ showURL s | "http" `isPrefixOf` s = ehref s [htxt s]
 --- Standard HTML page for generated package descriptions.
 cpmPackagePage :: String -> [BaseHtml] -> [[BaseHtml]] -> [BaseHtml]
                -> IO String
-cpmPackagePage title sidenav apilinks maindoc = do
-  let htmltitle = [h1 [smallMutedText "Curry Package ", htxt title]]
+cpmPackagePage pkgname sidenav apilinks maindoc = do
+  let htmltitle = [h1 [smallMutedText "Curry Package ", htxt pkgname]]
   time <- getLocalTime
   let btbase = "../bt4"
-  return $ showHtmlPage $
-    bootstrapPage (favIcon btbase) (cssIncludes btbase) (jsIncludes btbase)
-                  title ("?", [htxt $ "Package", nbsp, code [htxt title]])
-                  (apilinks ++ [[nbsp, nbsp, nbsp]] ++ leftTopMenu True (-1))
-                  rightTopMenu 4 sidenav
-                  htmltitle maindoc (curryDocFooter time)
+  return $ showHtmlPage $ bootstrapPage
+    (favIcon btbase) (cssIncludes btbase) (jsIncludes btbase)
+    pkgname
+    (pkgname ++ ".html", [htxt $ "Package", nbsp, code [htxt pkgname]])
+    (apilinks ++ [[nbsp, nbsp, nbsp]] ++ leftTopMenu True (-1))
+    rightTopMenu 4 sidenav
+    htmltitle maindoc (curryDocFooter time)
 
 
 --- A small muted text (used in the title):
@@ -286,7 +287,7 @@ favIcon btdir = btdir </> "img" </> "favicon.ico"
 -- The CSS includes relative to the base directory of BT4.
 cssIncludes :: String -> [String]
 cssIncludes btdir =
-  map (\n -> btdir </> "css" </> n ++ ".css") ["bootstrap.min","cpm"]
+  map (\n -> btdir </> "css" </> n ++ ".css") ["bootstrap.min", "cpm"]
 
 -- The JavaScript includes relative to the base directory of BT4.
 jsIncludes :: String -> [String]

@@ -57,7 +57,7 @@ import CPM.Package.HTML
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (Version of 11/04/2023)"
+  bannerText = "cpm-manage (Version of 12/04/2023)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Subdirectory containing HTML files for each package
@@ -287,6 +287,7 @@ writePackageIndexAsHTML config cpmindexdir = do
    writeCategoryIndexAsHTML allnpkgs
    mapM_ (writePackageAsHTML allpkgversions) allvpkgs
    --mapM_ (writePackageAsHTML allpkgversions) $ take 3 allnpkgs
+   return ()
  where
   comparePkgWithTime (_,mt1) (_,mt2) =
     maybe False
@@ -295,7 +296,7 @@ writePackageIndexAsHTML config cpmindexdir = do
 
   writePackageIndex indexpkgs listpkgs indexfile statistics actindex = do
     putStrLn $ "Writing '" ++ indexfile ++ "'..."
-    indextable <- packageInfosAsHtmlTable listpkgs
+    indextable <- packageInfosAsHtmlTable (actindex/=0) listpkgs
     let ptitle   = "Curry Packages in the CPM Repository"
         refOfPkg = if actindex == 0 then name else packageId
         pkglinks = map (\p -> hrefPrimBadge
@@ -339,7 +340,7 @@ writeCategoryIndexAsHTML allpkgs = do
   pidLeq p1 p2 = packageId p1 <= packageId p2
 
   formatCat (c,ps) = do
-    pstable <- packageInfosAsHtmlTable ps
+    pstable <- packageInfosAsHtmlTable False ps
     return (c, pstable)
 
 --- Standard HTML page for generated a package index.
@@ -405,9 +406,11 @@ writePackageAsHTML allpkgversions pkg = do
 writeReadableFile :: String -> String -> IO ()
 writeReadableFile f s = writeFile f s >> system ("chmod 644 " ++ f) >> return ()
 
--- Format a list of packages as an HTML table
-packageInfosAsHtmlTable :: [Package] -> IO BaseHtml
-packageInfosAsHtmlTable pkgs = do
+-- Format a list of packages as an HTML table.
+-- If the first argument is `True`, the link to the package contains
+-- the version number.
+packageInfosAsHtmlTable :: Bool -> [Package] -> IO BaseHtml
+packageInfosAsHtmlTable withversion pkgs = do
   rows <- mapM formatPkgAsRow pkgs
   return $ borderedHeadedTable
     (map ((:[]) . htxt)
@@ -418,7 +421,7 @@ packageInfosAsHtmlTable pkgs = do
   formatPkgAsRow pkg = do
     ptime <- getUploadTime pkg
     return
-      [ [hrefPrimSmBlock (packageHtmlDir </> pkgid ++ ".html")
+      [ [hrefPrimSmBlock (packageHtmlDir </> pkgref ++ ".html")
                          [htxt $ name pkg]]
       , intercalate [nbsp]
           (map (\ (PackageExecutable n _ _) -> [kbdInput [htxt n]])
@@ -428,7 +431,7 @@ packageInfosAsHtmlTable pkgs = do
       , maybe [nbsp] (\t -> [htxt $ toDate t]) ptime
       ]
    where
-    pkgid     = packageId pkg
+    pkgref    = if withversion then packageId pkg else name pkg
     toDate ct = show (ctYear ct) ++ show2 (ctMonth ct) ++ show2 (ctDay ct)
      where show2 i = '-' : if i < 10 then '0' : show i else show i
 
@@ -640,7 +643,9 @@ updatePackage config rcdefs = do
 -- Writes the dependencies of packages as an HTML page for each package
 -- with a dot graph in SVG.
 writePackageDependencies :: Config -> [Package] -> IO ()
-writePackageDependencies _ pkgs =
+writePackageDependencies _ pkgs = do
+  putStrLn $ "Generating package dependency files in directory '" ++
+             packageHtmlDir ++ "'..."
   inDirectory packageHtmlDir $ mapM_ writeDepsOfPackage (map name pkgs)
  where
   writeDepsOfPackage pname = do
@@ -700,10 +705,13 @@ depsOfPkgs alldeps (p:ps) seenps deps =
 depsToGraph :: String -> PkgDeps -> DotGraph
 depsToGraph pname cpmdeps =
   dgraph "Package Dependencies"
-    (map (\s -> Node s (if pname==s then [("style","filled"),("fillcolor","red")] else []))
+    (map (\s -> Node s (("URL", s ++ ".html") :
+                        if pname==s then currentPackageStyle else []))
          (nub (map fst cpmdeps ++ concatMap snd cpmdeps)))
     (map (\ (s,t) -> Edge s t [])
          (nub (concatMap (\ (p,ds) -> map (\d -> (p,d)) ds) cpmdeps)))
+ where
+  currentPackageStyle = [("style","filled"), ("fillcolor","red")]
 
 -- Write package dependencies into CSV file 'pkgs.csv'
 writeAllPackageDependencies :: Config -> IO ()
