@@ -96,6 +96,7 @@ main = do
     ["update"]        -> updatePackage config rcdefs
     ["showgraph"]     -> visualizePackageDependencies config ""
     ["showgraph",p]   -> visualizePackageDependencies config p
+    ["writeall"]      -> writeAllPackages config
     ["writedeps"]     -> writeAllPackageDependencies config
     ["writemods"]     -> writeAllPackageModules config rcdefs
     ["copydocs"]      -> copyPackageDocumentations config packageDocDir
@@ -162,7 +163,8 @@ helpText = banner ++ unlines
   , "sumcsv  [<d>]  : sum up all CSV package statistic files in <d>"
   , "showgraph      : visualize all package dependencies as a dot graph"
   , "showgraph <p>  : visualize dependencies for package <p> as a dot graph"
-  , "writedeps      : write all package dependencies as CSV file 'pkgs.csv'"
+  , "writeall       : write all versions of all packages into 'allpkgs.csv'"
+  , "writedeps      : write all package dependencies as CSV file 'pkgdeps.csv'"
   , "writemods      : write modules exported by package into 'pkgmods.csv'"
   , "copydocs [<d> ]: copy latest package documentations"
   , "                 from <d> (default: '" ++ packageDocDir ++ "')"
@@ -713,14 +715,51 @@ depsToGraph pname cpmdeps =
  where
   currentPackageStyle = [("style","filled"), ("fillcolor","red")]
 
--- Write package dependencies into CSV file 'pkgs.csv'
+------------------------------------------------------------------------------
+-- Write infos about all versions of packages into CSV file 'allpkgs.csv'.
+-- This can be used to initialize the database of Masala.
+writeAllPackages :: Config -> IO ()
+writeAllPackages cfg = do
+  (allpkgs,_) <- getAllPackageSpecs cfg True
+  putStr "Reading all packages.."
+  pkginfos <- mapM pkg2csv (sortBy leqP (concat allpkgs))
+  let outfile = "allpkgs.csv"
+  writeCSVFile outfile (headline : pkginfos)
+  putStrLn $ "Infos about all packages written to '" ++ outfile ++ "'"
+ where
+  headline = ["Package name", "Version", "Description", "Dependencies"
+             , "Exported modules", "Categories"]
+
+  leqP p1 p2 = name p1 < name p2 ||
+               (name p1 == name p2 &&
+                showVersion (version p1) <= showVersion (version p2))
+
+  pkg2csv p = do
+    putChar '.'
+    p <- fromEL $ readPackageFromRepository cfg p
+    return
+      [ name p
+      , showVersion $ version p
+      , pkg2desc p
+      , show $ map (\ (Dependency p' _) -> p') (dependencies p)
+      , show $ exportedModules p
+      , show $ category p
+      ]
+
+  pkg2desc p = unwords $ words $ -- to remove leading blanks
+    maybe (synopsis p)
+          id
+          (description p)
+
+------------------------------------------------------------------------------
+-- Write package dependencies into CSV file 'pkgdeps.csv'
 writeAllPackageDependencies :: Config -> IO ()
 writeAllPackageDependencies cfg = do
   (_,pkgs) <- getAllPackageSpecs cfg True
   let alldeps = map (\p -> name p : showVersion (version p) :
                            map (\ (Dependency p' _) -> p') (dependencies p))
                     pkgs
-  let outfile = "pkgs.csv"
+  let outfile = "pkgdeps.csv"
   writeCSVFile outfile alldeps
   putStrLn $ "Package dependencies written to '" ++ outfile ++ "'"
 
