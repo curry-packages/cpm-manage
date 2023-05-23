@@ -4,7 +4,7 @@
 --- Run "cpm-manage -h" to see all options.
 ---
 --- @author Michael Hanus
---- @version April 2023
+--- @version May 2023
 ------------------------------------------------------------------------------
 
 module CPM.Manage ( main )
@@ -57,7 +57,7 @@ import CPM.Package.HTML
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (Version of 12/04/2023)"
+  bannerText = "cpm-manage (Version of 23/05/2023)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Subdirectory containing HTML files for each package
@@ -727,8 +727,8 @@ writeAllPackages cfg = do
   writeCSVFile outfile (headline : pkginfos)
   putStrLn $ "Infos about all packages written to '" ++ outfile ++ "'"
  where
-  headline = ["Package name", "Version", "Description", "Dependencies"
-             , "Exported modules", "Categories"]
+  headline = ["Package name", "Version", "Description", "Upload time"
+             , "Dependencies", "Exported modules", "Categories"]
 
   leqP p1 p2 = name p1 < name p2 ||
                (name p1 == name p2 &&
@@ -736,20 +736,22 @@ writeAllPackages cfg = do
 
   pkg2csv p = do
     putChar '.'
-    p <- fromEL $ readPackageFromRepository cfg p
+    pkg <- fromEL $ readPackageFromRepository cfg p
+    mbtime <- getUploadTime pkg
     return
-      [ name p
-      , showVersion $ version p
-      , pkg2desc p
-      , show $ map (\ (Dependency p' _) -> p') (dependencies p)
-      , show $ exportedModules p
-      , show $ category p
+      [ name pkg
+      , showVersion $ version pkg
+      , pkg2desc pkg
+      , show mbtime
+      , show $ map (\ (Dependency p' _) -> p') (dependencies pkg)
+      , show $ exportedModules pkg
+      , show $ category pkg
       ]
 
-  pkg2desc p = unwords $ words $ -- to remove leading blanks
-    maybe (synopsis p)
+  pkg2desc pkg = unwords $ words $ -- to remove leading blanks
+    maybe (synopsis pkg)
           id
-          (description p)
+          (description pkg)
 
 ------------------------------------------------------------------------------
 -- Write package dependencies into CSV file 'pkgdeps.csv'
