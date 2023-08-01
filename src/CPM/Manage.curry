@@ -727,7 +727,7 @@ writeAllPackages cfg = do
   writeCSVFile outfile (headline : pkginfos)
   putStrLn $ "Infos about all packages written to '" ++ outfile ++ "'"
  where
-  headline = ["Package name", "Version", "Description", "Upload time"
+  headline = [ "Package name", "Version", "Description", "Upload time"
              , "Dependencies", "Exported modules", "Categories"]
 
   leqP p1 p2 = name p1 < name p2 ||
@@ -743,9 +743,9 @@ writeAllPackages cfg = do
       , showVersion $ version pkg
       , pkg2desc pkg
       , show mbtime
-      , show $ map (\ (Dependency p' _) -> p') (dependencies pkg)
-      , show $ exportedModules pkg
-      , show $ category pkg
+      , show $ sort $ map (\ (Dependency p' _) -> p') (dependencies pkg)
+      , show $ sort $ exportedModules pkg
+      , show $ sort $ category pkg
       ]
 
   pkg2desc pkg = unwords $ words $ -- to remove leading blanks

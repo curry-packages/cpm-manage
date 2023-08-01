@@ -10,7 +10,7 @@ import Data.Char        ( isSpace )
 import Data.List        ( find, intercalate, intersperse, isPrefixOf, splitOn )
 
 import Data.Time        ( CalendarTime, calendarTimeToString, getLocalTime
-                        , toCalendarTime )
+                        , toUTCTime )
 import HTML.Base
 import HTML.Styles.Bootstrap4
 import Language.Curry.Resources ( curryHomeURL, kics2URL, pakcsURL, curry2goURL
@@ -94,7 +94,7 @@ getUploadTime :: Package -> IO (Maybe CalendarTime)
 getUploadTime pkg = do
   hastar <- doesFileExist pkgtarpath
   if hastar then do ct <- getModificationTime pkgtarpath
-                    lt <- toCalendarTime ct
+                    let lt = toUTCTime ct
                     return $ Just lt
             else return Nothing
  where
