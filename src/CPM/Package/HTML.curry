@@ -94,8 +94,7 @@ getUploadTime :: Package -> IO (Maybe CalendarTime)
 getUploadTime pkg = do
   hastar <- doesFileExist pkgtarpath
   if hastar then do ct <- getModificationTime pkgtarpath
-                    let lt = toUTCTime ct
-                    return $ Just lt
+                    return $ Just $ toUTCTime ct
             else return Nothing
  where
   pkgtar     = packageId pkg ++ ".tar.gz"
@@ -315,9 +314,12 @@ leftTopMenu inpkg actindex =
 --- The standard right top menu.
 rightTopMenu :: [[BaseHtml]]
 rightTopMenu =
-  [ [ehrefNav cpmHomeURL   [htxt "Curry Package Manager"]]
-  , [ehrefNav curryHomeURL [htxt "Curry Homepage"]]
+  [ [ehrefNav masalaHomeURL [htxt "Masala"]]
+  , [ehrefNav cpmHomeURL    [htxt "Curry Package Manager"]]
+  , [ehrefNav curryHomeURL  [htxt "Curry Homepage"]]
   ]
+ where
+  masalaHomeURL = "https://cpm.curry-lang.org/masala/"
 
 --------------------------------------------------------------------------
 -- Standard footer information for generated web pages:
