@@ -61,7 +61,8 @@ packageToHTML allpkgversions pkg = do
                      [ulistWithClass "nav flex-column" "nav-item"
                                      (map addNavLink infomenu)])]))] ++
         (maybe [] (\t -> [blockstyle "badge badge-secondary"
-                            [htxt $ "Uploaded at " ++ calendarTimeToString t]])
+                            [htxt $ "Uploaded at " ++
+                                    calendarTimeToString t ++ " (UTC)"]])
                   mbpkgtime) ++
         (maybe [] (\s -> [blockstyle "badge badge-success" [htxt s]])
                   mbtested)
@@ -319,7 +320,7 @@ rightTopMenu =
   , [ehrefNav curryHomeURL  [htxt "Curry Homepage"]]
   ]
  where
-  masalaHomeURL = "https://cpm.curry-lang.org/masala/"
+  masalaHomeURL = "https://cpm.curry-lang.org/masala/run.cgi"
 
 --------------------------------------------------------------------------
 -- Standard footer information for generated web pages:
