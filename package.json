@@ -1,19 +1,19 @@
 {
     "name": "cpm-manage",
-    "version": "3.0.0",
+    "version": "4.0.0",
     "author": "Michael Hanus <mh@informatik.uni-kiel.de>",
     "synopsis": "Tools to manage the main repository of the Curry Package Manager",
     "category": [ "Packaging" ],
     "dependencies": {
         "base"           : ">= 3.0.0, < 4.0.0",
-        "cpm"            : ">= 3.0.0, < 4.0.0",
+        "cpm"            : ">= 4.0.0, < 5.0.0",
         "csv"            : ">= 3.0.0, < 4.0.0",
         "curry-resources": ">= 1.0.0",
         "currypath"      : ">= 3.0.0, < 4.0.0",
         "directory"      : ">= 3.0.0, < 4.0.0",
         "filepath"       : ">= 3.0.0, < 4.0.0",
         "graphviz"       : ">= 3.0.0, < 4.0.0",
-        "html2"          : ">= 3.0.0, < 4.0.0",
+        "html2"          : ">= 4.0.0, < 5.0.0",
         "io-extra"       : ">= 3.0.0, < 4.0.0",
         "process"        : ">= 3.0.0, < 4.0.0",
         "time"           : ">= 3.0.0, < 4.0.0"
