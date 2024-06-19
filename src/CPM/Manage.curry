@@ -4,7 +4,7 @@
 --- Run "cpm-manage -h" to see all options.
 ---
 --- @author Michael Hanus
---- @version May 2023
+--- @version August 2023
 ------------------------------------------------------------------------------
 
 module CPM.Manage ( main )
@@ -499,7 +499,7 @@ genTarOfAllPackages cfg tardir = do
     system $ unwords [ "rm -rf", checkoutdir, pkgdir ]
     fromEL $ do
       acquireAndInstallPackageFromSource cfg pkg
-      checkoutPackage cfg pkg
+      checkoutPackage cfg pkg ""
     let cmd = unwords [ "cd", checkoutdir, "&&"
                       , "tar", "cvzf", tarfile, ".", "&&"
                       , "chmod", "644", tarfile, "&&"
