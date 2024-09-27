@@ -4,7 +4,7 @@
 --- Run "cpm-manage -h" to see all options.
 ---
 --- @author Michael Hanus
---- @version August 2023
+--- @version September 2024
 ------------------------------------------------------------------------------
 
 module CPM.Manage ( main )
@@ -57,7 +57,7 @@ import CPM.Package.HTML
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (Version of 03/08/2023)"
+  bannerText = "cpm-manage (Version of 27/09/2024)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Subdirectory containing HTML files for each package
@@ -467,10 +467,14 @@ testAllPackages :: Config -> [(String,String)] -> String -> IO ()
 testAllPackages cfg rcdefs statdir = do
   (_,allpkgs) <- getAllPackageSpecs cfg True
   results <- mapM (checkoutAndTestPackage rcdefs statdir) allpkgs
-  if sum (map fst results) == 0
-    then putStrLn $ show (length allpkgs) ++ " PACKAGES SUCCESSFULLY TESTED!"
+  putStrLn dline
+  let (incmpt,cmptres) = partition ((<0) . fst) results
+  unless (null incmpt) $ putStrLn $
+    "INCOMPATIBLE PACKAGES (NOT TESTED): " ++ unwords (map snd incmpt)
+  if sum (map fst cmptres) == 0
+    then putStrLn $ show (length cmptres) ++ " PACKAGES SUCCESSFULLY TESTED!"
     else do putStrLn $ "ERRORS OCCURRED IN PACKAGES: " ++
-                       unwords (map snd (filter ((> 0) . fst) results))
+                       unwords (map snd (filter ((> 0) . fst) cmptres))
             exitWith 1
 
 dline :: String
@@ -524,7 +528,7 @@ addNewPackage config rcdefs withtag = do
   fromEL $ addPackageToRepository config "." False False
   putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
   (ecode,_) <- checkoutAndTestPackage rcdefs "" pkg
-  when (ecode>0) $ do
+  when (ecode > 0) $ do
     removeDirectoryComplete pkgRepositoryDir
     removeDirectoryComplete pkgInstallDir
     putStrLn "Checkout/test failure, package deleted in repository directory!"
@@ -565,20 +569,33 @@ checkoutAndTestPackage rcdefs statdir pkg = inEmptyTempDir $ do
   unless (null statdir) $ createDirectoryIfMissing True statdir
   let checkoutdir = pkgname
       cpmcall = cpmCall (rcdefs ++ [("bin_install_path",bindir)])
-      cmd = unwords $
-              [ "rm -rf", checkoutdir, "&&"
-              , cpmcall, "checkout", pkgname, showVersion pkgversion, "&&"
-              , "cd", checkoutdir, "&&"
-              -- install possible binaries in bindir:
-              , cpmcall, "install", "&&"
-              , "export PATH=" ++ bindir ++ ":$PATH", "&&"
-              , cpmcall, "test"] ++
-              (if null statfile then [] else ["-f", statfile]) ++
-              [ "&&", cpmcall, "uninstall" ]
-  putStrLn $ "...with command:\n" ++ cmd
-  ecode <- system cmd
-  when (ecode>0) $ putStrLn $ "ERROR OCCURED IN PACKAGE '" ++ pkgid ++ "'!"
-  return (ecode,pkgid)
+      cmd1 = unwords $
+               [ "rm -rf", checkoutdir, "&&"
+               , cpmcall, "checkout", pkgname, showVersion pkgversion, "&&"
+               , "cd", checkoutdir, "&&"
+               -- compute package load to check for compatible version:
+               , "echo PACKAGE LOAD PATH:", "&&"
+               , cpmcall, "deps --path" ]
+      cmd2 = unwords $
+               [ "cd", checkoutdir, "&&"
+               -- install possible binaries in bindir:
+               , cpmcall, "install", "&&"
+               , "export PATH=" ++ bindir ++ ":$PATH", "&&"
+               , cpmcall, "test"] ++
+               (if null statfile then [] else ["-f", statfile]) ++
+               [ "&&", cpmcall, "uninstall" ]
+  putStrLn $ "CHECKOUT WITH COMMAND:\n" ++ cmd1
+  ecode1 <- system cmd1
+  if ecode1 > 0
+    then do
+      putStrLn $ "INCOMPATIBLE PACKAGE '" ++ pkgid ++ "'!"
+      return (-1,pkgid)
+    else do
+      putStrLn $ "INSTALL AND TEST WITH COMMAND:\n" ++ cmd2
+      ecode2 <- system cmd2
+      when (ecode2 > 0) $ putStrLn $
+        "ERROR OCCURED IN PACKAGE '" ++ pkgid ++ "'!"
+      return (ecode2,pkgid)
  where
   pkgname     = name pkg
   pkgversion  = version pkg
@@ -867,11 +884,12 @@ printConfig :: Config -> IO ()
 printConfig cfg = do
   putStr $ unlines [banner, "Current configuration:", "", showConfiguration cfg]
   (allpkgversions,allcompatpkgs) <- getAllPackageSpecs cfg True
-  putStrLn $ "\nNewest compatible packages:\n" ++
+  putStrLn $ "\nNewest packages compatible to compiler version:\n" ++
              unwords (map packageId allcompatpkgs)
   let allpkgs  = concatMap (take 1) allpkgversions
       incnames = map name allpkgs \\ map name allcompatpkgs
-  putStrLn $ "\nIncompatible packages:\n" ++ unwords (sort incnames)
+  putStrLn $ "\nPackages with incompatible compiler dependency:\n" ++
+             unwords (sort incnames)
 
 --- Executes an IO action with the current directory set to a new empty
 --- temporary directory. After the execution, the temporary directory
