@@ -569,30 +569,30 @@ checkoutAndTestPackage rcdefs statdir pkg = inEmptyTempDir $ do
   unless (null statdir) $ createDirectoryIfMissing True statdir
   let checkoutdir = pkgname
       cpmcall = cpmCall (rcdefs ++ [("bin_install_path",bindir)])
-      cmd1 = unwords $
+      icmd = unwords $
                [ "rm -rf", checkoutdir, "&&"
                , cpmcall, "checkout", pkgname, showVersion pkgversion, "&&"
                , "cd", checkoutdir, "&&"
+               -- install possible binaries in bindir:
+               , cpmcall, "install", "&&"
                -- compute package load to check for compatible version:
                , "echo PACKAGE LOAD PATH:", "&&"
                , cpmcall, "deps --path" ]
-      cmd2 = unwords $
+      tcmd = unwords $
                [ "cd", checkoutdir, "&&"
-               -- install possible binaries in bindir:
-               , cpmcall, "install", "&&"
                , "export PATH=" ++ bindir ++ ":$PATH", "&&"
                , cpmcall, "test"] ++
                (if null statfile then [] else ["-f", statfile]) ++
                [ "&&", cpmcall, "uninstall" ]
-  putStrLn $ "CHECKOUT WITH COMMAND:\n" ++ cmd1
-  ecode1 <- system cmd1
+  putStrLn $ "CHECKOUT AND INSTALL WITH COMMAND:\n" ++ icmd
+  ecode1 <- system icmd
   if ecode1 > 0
     then do
       putStrLn $ "INCOMPATIBLE PACKAGE '" ++ pkgid ++ "'!"
       return (-1,pkgid)
     else do
-      putStrLn $ "INSTALL AND TEST WITH COMMAND:\n" ++ cmd2
-      ecode2 <- system cmd2
+      putStrLn $ "TEST WITH COMMAND:\n" ++ tcmd
+      ecode2 <- system tcmd
       when (ecode2 > 0) $ putStrLn $
         "ERROR OCCURED IN PACKAGE '" ++ pkgid ++ "'!"
       return (ecode2,pkgid)
