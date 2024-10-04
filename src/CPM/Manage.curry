@@ -4,7 +4,7 @@
 --- Run "cpm-manage -h" to see all options.
 ---
 --- @author Michael Hanus
---- @version September 2024
+--- @version October 2024
 ------------------------------------------------------------------------------
 
 module CPM.Manage ( main )
@@ -57,7 +57,7 @@ import CPM.Package.HTML
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (Version of 27/09/2024)"
+  bannerText = "cpm-manage (Version of 04/10/2024)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Subdirectory containing HTML files for each package
@@ -305,10 +305,10 @@ writePackageIndexAsHTML config cpmindexdir = do
                                 (packageHtmlDir </> refOfPkg p ++ ".html")
                                 [htxt $ refOfPkg p])
                        indexpkgs
-        pindex   = [h2 [htxt "Package index:"], par (hitems pkglinks),
-                    h2 [htxt $ if actindex == 0
-                                 then "Packages sorted by name"
-                                 else "All versions sorted by upload time"]]
+        pindex   = if actindex == 0
+                     then [h2 [htxt "Package index:"], par (hitems pkglinks),
+                           h2 [htxt "Packages sorted by name"]]
+                     else [h2 [htxt "All package versions sorted by upload time"]]
     pagestring <- cpmIndexPage ptitle (pindex ++ [indextable] ++ statistics)
                                actindex
     writeReadableFile indexfile pagestring
