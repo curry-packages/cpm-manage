@@ -4,7 +4,7 @@
 --- Run "cpm-manage -h" to see all options.
 ---
 --- @author Michael Hanus
---- @version October 2024
+--- @version December 2024
 ------------------------------------------------------------------------------
 
 module CPM.Manage ( main )
@@ -57,7 +57,7 @@ import CPM.Package.HTML
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (Version of 04/10/2024)"
+  bannerText = "cpm-manage (Version of 15/12/2024)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Subdirectory containing HTML files for each package
@@ -91,11 +91,9 @@ main = do
     ["testall",d]     -> getAbsolutePath d >>= testAllPackages config rcdefs
     ["sumcsv",d]      -> do ad <- getAbsolutePath d
                             sumCSVStatsOfPkgs ad "SUM.csv"
-    ["add"]           -> addNewPackage config rcdefs True
-    ["addnotag"]      -> addNewPackage config rcdefs False
-    ["update"]        -> updatePackage config rcdefs
     ["showgraph"]     -> visualizePackageDependencies config ""
     ["showgraph",p]   -> visualizePackageDependencies config p
+    ["packagelist"]   -> packageDependencyList config
     ["writeall"]      -> writeAllPackages config
     ["writedeps"]     -> writeAllPackageDependencies config
     ["writemods"]     -> writeAllPackageModules config rcdefs
@@ -140,14 +138,6 @@ helpText = banner ++ unlines
   , ""
   , "Commands:", ""
   , "config         : show current configuration"
-  {-
-  , "add            : add this package version to the central repository"
-  , "                 and tag git repository of this package with its version"
-  , "addnotag       : add this package version to the central repository"
-  , "                 (do not tag git repository)"
-  , "update         : tag git repository of local package with current version"
-  , "                 and update central index with current package specification"
-  -}
   , "genhtml [<d>]  : generate HTML pages for all packages into <d>"
   , "                 (default: 'CPM')"
   , "genhtml <d> <p> <v>: generate HTML pages for package <p> / version <v>"
@@ -163,6 +153,7 @@ helpText = banner ++ unlines
   , "sumcsv  [<d>]  : sum up all CSV package statistic files in <d>"
   , "showgraph      : visualize all package dependencies as a dot graph"
   , "showgraph <p>  : visualize dependencies for package <p> as a dot graph"
+  , "packagelist    : show list of all packages ordered by dependencies"
   , "writeall       : write all versions of all packages into 'allpkgs.csv'"
   , "writedeps      : write all package dependencies as CSV file 'pkgdeps.csv'"
   , "writemods      : write modules exported by package into 'pkgmods.csv'"
@@ -182,7 +173,7 @@ packageTarDir :: String
 packageTarDir = "CPM" </> "PACKAGES"
 
 ------------------------------------------------------------------------------
---- Get all packages from the repository.
+--- Get all packages from the package index.
 --- For each package, get the newest version compatible
 --- to the current compiler. If there is no compatible version and the
 --- second argument is False, get the newest version, otherwise the package
@@ -192,12 +183,13 @@ packageTarDir = "CPM" </> "PACKAGES"
 --- (independent of the compiler compatbility).
 getAllPackageSpecs :: Config -> Bool -> IO ([[Package]],[Package])
 getAllPackageSpecs config compat = do
-  putStrLn "Reading base repository..."
+  putStr "Reading package index..."
   repo <- fromEL $ getBaseRepository config
   let allpkgversions = listPackages repo
       allcompatpkgs  = sortBy (\ps1 ps2 -> name ps1 <= name ps2)
                               (concatMap (filterCompatPkgs config)
                                          allpkgversions)
+  putStrLn "done"
   return (allpkgversions, allcompatpkgs)
  where
   -- Returns the first package compatible to the current compiler.
@@ -260,9 +252,10 @@ genReadmeForPackage pkg = do
   outfile1 = docdir </> "README.html"
   outfile2 = docdir </> "README_I.html"
 
-  formatCmd1 readme = "pandoc -s -t html -o " ++ outfile1 ++ " " ++ readme
-  formatCmd2 readme = "pandoc -t html -o " ++ outfile2 ++ " " ++ readme
-    
+  pandocCmd = "pandoc -f gfm -t html "
+  formatCmd1 readme = pandocCmd ++ "-s -o " ++ outfile1 ++ " " ++ readme
+  formatCmd2 readme = pandocCmd ++ "-o " ++ outfile2 ++ " " ++ readme
+
 ------------------------------------------------------------------------------
 -- Generate main HTML index pages of the CPM repository.
 writePackageIndexAsHTML :: Config -> String -> IO ()
@@ -516,44 +509,6 @@ genTarOfAllPackages cfg tardir = do
 
 
 ------------------------------------------------------------------------------
--- Add a new package (already committed and pushed into its git repo)
--- where the package specification is stored in the current directory.
-addNewPackage :: Config -> [(String,String)] -> Bool -> IO ()
-addNewPackage config rcdefs withtag = do
-  pkg <- fromEL (loadPackageSpec ".")
-  when withtag $ setTagInGit pkg
-  let pkgIndexDir      = name pkg </> showVersion (version pkg)
-      pkgRepositoryDir = repositoryDir config </> pkgIndexDir
-      pkgInstallDir    = packageInstallDir config </> packageId pkg
-  fromEL $ addPackageToRepository config "." False False
-  putStrLn $ "Package repository directory '" ++ pkgRepositoryDir ++ "' added."
-  (ecode,_) <- checkoutAndTestPackage rcdefs "" pkg
-  when (ecode > 0) $ do
-    removeDirectoryComplete pkgRepositoryDir
-    removeDirectoryComplete pkgInstallDir
-    putStrLn "Checkout/test failure, package deleted in repository directory!"
-    fromEL $ updateRepository config True True True False
-    exitWith 1
-  putStrLn $ "\nEverything looks fine..."
-  putStrLn $ "\nTo publish the new repository directory, run command:\n"
-  putStrLn $ "pushd " ++ repositoryDir config ++
-             " && git add " ++ pkgIndexDir </> packageSpecFile ++
-             " && git commit -m\"" ++ pkgIndexDir ++ " added\" " ++
-             " && git push origin master && popd"
-
--- Set the package version as a tag in the git repository.
-setTagInGit :: Package -> IO ()
-setTagInGit pkg = do
-  let ts = 'v' : showVersion (version pkg)
-  (_,gittag,_) <- evalCmd "git" ["tag","-l",ts] ""
-  let deltag = if null gittag then [] else ["git tag -d",ts,"&&"]
-      cmd    = unwords $ deltag ++ ["git tag -a",ts,"-m",ts,"&&",
-                                    "git push --tags -f"]
-  putStrLn $ "Execute: " ++ cmd
-  ecode <- system cmd
-  when (ecode > 0) $ error "ERROR in setting the git tag"
-
-------------------------------------------------------------------------------
 -- Test a specific version of a package by checking it out in a temporary
 -- directory, install it (with a local bin dir), and run all tests.
 -- Returns the exit code of the package test command and the packaged id.
@@ -643,22 +598,6 @@ combineCSVFilesInDir fromcsv tocsv combine emptycsv statdir outfile = do
   writeCSVFile outfile (tocsv results)
 
 ------------------------------------------------------------------------------
--- Re-tag the current git version with the current package version
--- and copy the package spec file to the cpm index
-updatePackage :: Config -> [(String,String)] -> IO ()
-updatePackage config rcdefs = do
-  pkg <- fromEL (loadPackageSpec ".")
-  let pkgInstallDir    = packageInstallDir config </> packageId pkg
-  setTagInGit pkg
-  putStrLn $ "Deleting old repo copy '" ++ pkgInstallDir ++ "'..."
-  removeDirectoryComplete pkgInstallDir
-  (ecode,_) <- checkoutAndTestPackage rcdefs "" pkg
-  when (ecode > 0) $ do removeDirectoryComplete pkgInstallDir
-                        putStrLn $ "ERROR in package, CPM index not updated!"
-                        exitWith 1
-  fromEL $ addPackageToRepository config "." True False
-
-------------------------------------------------------------------------------
 -- Writes the dependencies of packages as an HTML page for each package
 -- with a dot graph in SVG.
 writePackageDependencies :: Config -> [Package] -> IO ()
@@ -678,6 +617,25 @@ writePackageDependencies _ pkgs = do
                   [h1 [smallMutedText "Dependencies of ", htxt pname]]
                   [block [htmlText svgtxt]]
     writeReadableFile htmldepsfile depspage
+
+------------------------------------------------------------------------------
+-- Show all packages compatible to current compiler as a list ordered
+-- by the dependencies starting from the base package.
+-- This is useful for tools processing all packages.
+packageDependencyList :: Config -> IO ()
+packageDependencyList cfg = do
+  (_,allcompatpkgs) <- getAllPackageSpecs cfg True
+  putStrLn $ unlines $ map (\p -> name p ++ " " ++ showVersion (version p))
+                           (psort [] [] allcompatpkgs)
+ where
+  psort sorted []       [] = reverse sorted
+  psort sorted unsorted@(_:_) [] = psort sorted [] unsorted
+  psort sorted unsorted (p:ps) =
+    let pdeps = map (\ (Dependency p' _) -> p') (dependencies p)
+    in if all (`elem` (map name sorted)) pdeps
+         then psort (p:sorted) unsorted ps
+         else psort sorted (p:unsorted) ps
+
 
 -- Visualize package dependencies as dot graph.
 -- The second argument is the name of the package to be visualized or empty
