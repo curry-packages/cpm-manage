@@ -15,6 +15,7 @@ import Data.List          ( (\\), groupBy, isPrefixOf, intercalate, intersect
                           , isSuffixOf, nub, nubBy, partition, sort, sortBy
                           , sum, union )
 import System.Environment ( getArgs )
+import System.IO          ( hPutStr, hPutStrLn, stderr )
 
 import Data.GraphViz
 import Data.Time          ( CalendarTime, compareCalendarTime, ctDay, ctMonth
@@ -183,13 +184,13 @@ packageTarDir = "CPM" </> "PACKAGES"
 --- (independent of the compiler compatbility).
 getAllPackageSpecs :: Config -> Bool -> IO ([[Package]],[Package])
 getAllPackageSpecs config compat = do
-  putStr "Reading package index..."
+  hPutStr stderr "Reading package index..."
   repo <- fromEL $ getBaseRepository config
   let allpkgversions = listPackages repo
       allcompatpkgs  = sortBy (\ps1 ps2 -> name ps1 <= name ps2)
                               (concatMap (filterCompatPkgs config)
                                          allpkgversions)
-  putStrLn "done"
+  hPutStrLn stderr "done"
   return (allpkgversions, allcompatpkgs)
  where
   -- Returns the first package compatible to the current compiler.
@@ -625,8 +626,8 @@ writePackageDependencies _ pkgs = do
 packageDependencyList :: Config -> IO ()
 packageDependencyList cfg = do
   (_,allcompatpkgs) <- getAllPackageSpecs cfg True
-  putStrLn $ unlines $ map (\p -> name p ++ " " ++ showVersion (version p))
-                           (psort [] [] allcompatpkgs)
+  putStr $ unlines $ map (\p -> name p ++ " " ++ showVersion (version p))
+                         (psort [] [] allcompatpkgs)
  where
   psort sorted []       [] = reverse sorted
   psort sorted unsorted@(_:_) [] = psort sorted [] unsorted
