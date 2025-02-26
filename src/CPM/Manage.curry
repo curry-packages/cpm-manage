@@ -4,7 +4,7 @@
 --- Run "cpm-manage -h" to see all options.
 ---
 --- @author Michael Hanus
---- @version December 2024
+--- @version February 2025
 ------------------------------------------------------------------------------
 
 module CPM.Manage ( main )
@@ -31,7 +31,7 @@ import System.Directory   ( createDirectoryIfMissing, doesDirectoryExist
 import System.FilePath    ( (</>) )
 import System.IOExts      ( evalCmd, readCompleteFile )
 import System.Process     ( getPID, exitWith, system )
-import Text.CSV           ( readCSV, writeCSVFile )
+import Text.CSV           ( readCSV, showCSV, writeCSVFile )
 
 import CPM.Config              ( Config, repositoryDir, packageInstallDir
                                , readConfigurationWith, showConfiguration )
@@ -58,7 +58,7 @@ import CPM.Package.HTML
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (Version of 15/12/2024)"
+  bannerText = "cpm-manage (Version of 26/02/2025)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Subdirectory containing HTML files for each package
@@ -94,7 +94,7 @@ main = do
                             sumCSVStatsOfPkgs ad "SUM.csv"
     ["showgraph"]     -> visualizePackageDependencies config ""
     ["showgraph",p]   -> visualizePackageDependencies config p
-    ["packagelist"]   -> packageDependencyList config
+    ["packagelist"]   -> getPackageDependencies config >>= putStrLn . showCSV
     ["writeall"]      -> writeAllPackages config
     ["writedeps"]     -> writeAllPackageDependencies config
     ["writemods"]     -> writeAllPackageModules config rcdefs
@@ -154,7 +154,7 @@ helpText = banner ++ unlines
   , "sumcsv  [<d>]  : sum up all CSV package statistic files in <d>"
   , "showgraph      : visualize all package dependencies as a dot graph"
   , "showgraph <p>  : visualize dependencies for package <p> as a dot graph"
-  , "packagelist    : show list of all packages ordered by dependencies"
+  , "packagelist    : show list of all packages ordered by dependencies (CSV)"
   , "writeall       : write all versions of all packages into 'allpkgs.csv'"
   , "writedeps      : write all package dependencies as CSV file 'pkgdeps.csv'"
   , "writemods      : write modules exported by package into 'pkgmods.csv'"
@@ -620,14 +620,14 @@ writePackageDependencies _ pkgs = do
     writeReadableFile htmldepsfile depspage
 
 ------------------------------------------------------------------------------
--- Show all packages compatible to current compiler as a list ordered
--- by the dependencies starting from the base package.
+-- Get name and version of all packages compatible to current compiler as a
+-- list ordered by the dependencies starting from the base package.
 -- This is useful for tools processing all packages.
-packageDependencyList :: Config -> IO ()
-packageDependencyList cfg = do
+getPackageDependencies :: Config -> IO [[String]]
+getPackageDependencies cfg = do
   (_,allcompatpkgs) <- getAllPackageSpecs cfg True
-  putStr $ unlines $ map (\p -> name p ++ " " ++ showVersion (version p))
-                         (psort [] [] allcompatpkgs)
+  return $ map (\p -> [name p, showVersion (version p)])
+               (psort [] [] allcompatpkgs)
  where
   psort sorted []       [] = reverse sorted
   psort sorted unsorted@(_:_) [] = psort sorted [] unsorted
@@ -637,7 +637,7 @@ packageDependencyList cfg = do
          then psort (p:sorted) unsorted ps
          else psort sorted (p:unsorted) ps
 
-
+------------------------------------------------------------------------------
 -- Visualize package dependencies as dot graph.
 -- The second argument is the name of the package to be visualized or empty
 -- if all packages should be visualized.
