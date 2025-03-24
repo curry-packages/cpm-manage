@@ -14,7 +14,8 @@ import Data.Time        ( CalendarTime, calendarTimeToString, getLocalTime
 import HTML.Base
 import HTML.Styles.Bootstrap4
 import Language.Curry.Resources ( curryHomeURL, kics2URL, pakcsURL, curry2goURL
-                        , cpmHomeURL, curryPackagesURL, curryPackagesDocURL )
+                                , cpmHomeURL, curryPackagesURL
+                                , curryPackagesDocURL, masalaHomeURL )
 import System.Directory ( doesDirectoryExist, doesFileExist
                         , getModificationTime )
 import System.FilePath  ( (</>), replaceExtension )
@@ -24,6 +25,14 @@ import Text.CSV         ( readCSV )
 import CPM.Package
 import CPM.Package.Helpers  ( renderPackageInfo )
 
+------------------------------------------------------------------------------
+--- The base directory of the CurryInfo HTML pages.
+curryInfoHtmlBase :: String
+curryInfoHtmlBase = "/var/www/webapps/curry-info/HTML"
+
+--- The base URL of the CurryInfo HTML pages.
+curryInfoHtmlURL :: String
+curryInfoHtmlURL = "https://cpm.curry-lang.org/webapps/curry-info/HTML"
 
 ------------------------------------------------------------------------------
 --- Generate HTML page string for a given package.
@@ -34,6 +43,8 @@ packageToHTML allpkgversions pkg = do
   hasreadme  <- doesFileExist readmefile
   hasreadmei <- doesFileExist readmeifile
   readmei    <- if hasreadmei then readFile readmeifile else return ""
+  let cidir  = "packages" </> pname </> "versions" </> pversion
+  hascinfo   <- doesDirectoryExist $ curryInfoHtmlBase </> cidir
   mbpkgtime  <- getUploadTime pkg
   mbtested   <- getTestResults pkgid
   let apilinks = (if hasaindex
@@ -45,12 +56,16 @@ packageToHTML allpkgversions pkg = do
                                (\mref -> [href mref [htxt "Manual (PDF)"]])
                                (manualURL pkg)
                     else [])
+      cilink   = if hascinfo then [ehref (curryInfoHtmlURL </> cidir) 
+                                         [htxt "Analysis information"]]
+                             else []
       infomenu = (if hasreadme
                     then [ehref ("../" ++ readmefile) [htxt "README"]]
                     else []) ++
                  [ehref (pkgid ++ ".txt") [htxt "Package specification"]] ++
                  apilinks ++
-                 [href (pname ++ "-deps.html") [htxt "Package dependencies"]]
+                 [href (pname ++ "-deps.html") [htxt "Package dependencies"]] ++
+                 cilink
       mbdocurl = if hasapidir then Just $ curryPackagesDocURL ++ pkgid
                               else Nothing
       sidenav =
@@ -77,14 +92,15 @@ packageToHTML allpkgversions pkg = do
 
   pname       = name pkg
   pkgid       = packageId pkg
+  pversion    = showVersion (version pkg)
   apiDir      = "DOC" </> pkgid
   indexhtml   = "index.html"
   readmefile  = apiDir </> "README.html"
   readmeifile = apiDir </> "README_I.html"
   pkgtar      = pkgid ++ ".tar.gz"
   pkgtarref   = [("Checkout with CPM",
-                  [kbdInput [htxt $ "cypm checkout " ++ pname ++ " " ++
-                                    showVersion (version pkg)]]),
+                  [kbdInput
+                    [htxt $ "cypm checkout " ++ pname ++ " " ++ pversion]]),
                  ("Package source", 
                   [ehref (".." </> "PACKAGES" </> pkgtar) [htxt pkgtar],
                    htxt " [", href (pkgid ++ "-src.html") [htxt "browse"],
@@ -319,8 +335,6 @@ rightTopMenu =
   , [ehrefNav cpmHomeURL    [htxt "Curry Package Manager"]]
   , [ehrefNav curryHomeURL  [htxt "Curry Homepage"]]
   ]
- where
-  masalaHomeURL = "https://cpm.curry-lang.org/masala/run.cgi"
 
 --------------------------------------------------------------------------
 -- Standard footer information for generated web pages:
