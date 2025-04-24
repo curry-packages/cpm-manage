@@ -4,7 +4,7 @@
 --- Run "cpm-manage -h" to see all options.
 ---
 --- @author Michael Hanus
---- @version February 2025
+--- @version April 2025
 ------------------------------------------------------------------------------
 
 module CPM.Manage ( main )
@@ -49,6 +49,7 @@ import CPM.Repository.Update   ( addPackageToRepository, updateRepository )
 import CPM.Repository.Select   ( getBaseRepository, getPackageVersion )
 import CPM.Resolution          ( isCompatibleToCompiler )
 
+import CPM.Manage.Config
 import CPM.Package.HTML
 
 ------------------------------------------------------------------------------
@@ -58,7 +59,7 @@ import CPM.Package.HTML
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (Version of 24/03/2025)"
+  bannerText = "cpm-manage (Version of 24/04/2025)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Subdirectory containing HTML files for each package
@@ -351,7 +352,7 @@ cpmIndexPage title maindoc actindex = do
                   (leftTopMenu False actindex)
                   rightTopMenu 0 []
                   [h1 [htxt title, smallMutedText dayversion]]
-                  maindoc (curryDocFooter time)
+                  maindoc (cpmManageFooter time)
 
 --- Generate HTML page for a package in a given version into a directory.
 writePackageVersionAsHTML :: Config -> String -> String -> String -> IO ()
@@ -842,6 +843,9 @@ readConfiguration rcdefs = do
 printConfig :: Config -> IO ()
 printConfig cfg = do
   putStr $ unlines [banner, "Current configuration:", "", showConfiguration cfg]
+  putStrLn $ "CURRYINFO_HTML_URL     : " ++ curryInfoHtmlURL
+  cibase <- curryInfoHtmlBase
+  putStrLn $ "CURRYINFO_HTML_BASE    : " ++ cibase ++ "\n"
   (allpkgversions,allcompatpkgs) <- getAllPackageSpecs cfg True
   putStrLn $ "\nNewest packages compatible to compiler version:\n" ++
              unwords (map packageId allcompatpkgs)
@@ -894,7 +898,7 @@ subdirHtmlPage pagetitle homebrand header maindoc = do
       pagetitle homebrand
       (leftTopMenu True (-1)) rightTopMenu 0 []
       header
-      maindoc (curryDocFooter time)
+      maindoc (cpmManageFooter time)
 
 directoryContentsAsHTML :: Int -> String -> String -> IO [BaseHtml]
 directoryContentsAsHTML d base dir = do
