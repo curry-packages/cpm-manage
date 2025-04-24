@@ -27,12 +27,13 @@ import CPM.Package.Helpers  ( renderPackageInfo )
 
 ------------------------------------------------------------------------------
 --- The base directory of the CurryInfo HTML pages.
-curryInfoHtmlBase :: String
-curryInfoHtmlBase = "/var/www/webapps/curry-info/HTML"
+curryInfoHtmlBase :: IO String
+curryInfoHtmlBase = return
+  "/var/www/vhosts/curry-lang.org/cpm.curry-lang.org/curry-info/HTML"
 
 --- The base URL of the CurryInfo HTML pages.
 curryInfoHtmlURL :: String
-curryInfoHtmlURL = "https://cpm.curry-lang.org/webapps/curry-info/HTML"
+curryInfoHtmlURL = "https://cpm.curry-lang.org/curry-info/HTML"
 
 ------------------------------------------------------------------------------
 --- Generate HTML page string for a given package.
@@ -44,7 +45,7 @@ packageToHTML allpkgversions pkg = do
   hasreadmei <- doesFileExist readmeifile
   readmei    <- if hasreadmei then readFile readmeifile else return ""
   let cidir  = "packages" </> pname </> "versions" </> pversion
-  hascinfo   <- doesDirectoryExist $ curryInfoHtmlBase </> cidir
+  hascinfo   <- fmap (</> cidir) curryInfoHtmlBase >>= doesDirectoryExist
   mbpkgtime  <- getUploadTime pkg
   mbtested   <- getTestResults pkgid
   let apilinks = (if hasaindex
