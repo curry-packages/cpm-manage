@@ -4,7 +4,7 @@
 --- Run "cpm-manage -h" to see all options.
 ---
 --- @author Michael Hanus
---- @version April 2025
+--- @version May 2025
 ------------------------------------------------------------------------------
 
 module CPM.Manage ( main )
@@ -28,7 +28,7 @@ import System.Directory   ( createDirectoryIfMissing, doesDirectoryExist
                           , doesFileExist, getAbsolutePath, getCurrentDirectory
                           , getDirectoryContents, getTemporaryDirectory
                           , setCurrentDirectory )
-import System.FilePath    ( (</>) )
+import System.FilePath    ( (</>), isExtensionOf )
 import System.IOExts      ( evalCmd, readCompleteFile )
 import System.Process     ( getPID, exitWith, system )
 import Text.CSV           ( readCSV, showCSV, writeCSVFile )
@@ -59,7 +59,7 @@ import CPM.Package.HTML
 banner :: String
 banner = unlines [bannerLine, bannerText, bannerLine]
  where
-  bannerText = "cpm-manage (Version of 24/04/2025)"
+  bannerText = "cpm-manage (Version of 14/05/2025)"
   bannerLine = take (length bannerText) (repeat '-')
 
 --- Subdirectory containing HTML files for each package
@@ -99,8 +99,9 @@ main = do
     ["writeall"]      -> writeAllPackages config
     ["writedeps"]     -> writeAllPackageDependencies config
     ["writemods"]     -> writeAllPackageModules config rcdefs
-    ["copydocs"]      -> copyPackageDocumentations config packageDocDir
-    ["copydocs",d]    -> getAbsolutePath d >>= copyPackageDocumentations config
+    ["copydocs"]      -> copyPackageDocumentations config True packageDocDir
+    ["copydocs",d]    -> getAbsolutePath d >>= copyPackageDocumentations config True
+    ["copycdoc",d]    -> getAbsolutePath d >>= copyPackageDocumentations config False
     ["config"]        -> printConfig config
     ["--help"]        -> putStrLn helpText
     ["-h"]            -> putStrLn helpText
@@ -160,6 +161,9 @@ helpText = banner ++ unlines
   , "writedeps      : write all package dependencies as CSV file 'pkgdeps.csv'"
   , "writemods      : write modules exported by package into 'pkgmods.csv'"
   , "copydocs [<d> ]: copy latest package documentations"
+  , "                 from <d> (default: '" ++ packageDocDir ++ "')"
+  , "                 to '" ++ currygleDocDir ++ "'"
+  , "copycdoc [<d> ]: copy `.cdoc` files of latest package documentations"
   , "                 from <d> (default: '" ++ packageDocDir ++ "')"
   , "                 to '" ++ currygleDocDir ++ "'"
   ]
@@ -799,8 +803,8 @@ checkOutPkgInDir rcdefs pname pvers = inTempDir $ do
 -- Copy all package documentations from directory `packagedocdir` into
 -- the directory `currygleDocDir` so that the documentations
 -- can be used by Currygle to generate the documentation index
-copyPackageDocumentations :: Config -> String -> IO ()
-copyPackageDocumentations cfg packagedocdir = do
+copyPackageDocumentations :: Config -> Bool -> String -> IO ()
+copyPackageDocumentations cfg copyall packagedocdir = do
   allpkgs <- getAllPackages cfg
   let pkgs   = map sortVersions (groupBy (\a b -> name a == name b) allpkgs)
       pkgids = sortBy (\xs ys -> head xs <= head ys) (map (map packageId) pkgs)
@@ -816,11 +820,18 @@ copyPackageDocumentations cfg packagedocdir = do
     exdoc <- doesDirectoryExist pdir
     if exdoc
       then do putStrLn $ "Copying documentation of " ++ pid ++ "..."
-              copyDirectory pdir (currygleDocDir </> pid)
+              if copyall then copyDirectory pdir (currygleDocDir </> pid)
+                         else copyCDocsInDir pdir (currygleDocDir </> pid)
       else
         if null pids
           then putStrLn $ "Documentation " ++ pid ++ " does not exist!"
           else copyPackageDoc pids
+
+  copyCDocsInDir dir1 dir2 = do
+    createDirectoryIfMissing True dir2
+    dirfiles <- getDirectoryContents dir1
+    mapM_ (\f -> system ("/bin/cp \"" ++ dir1 </> f ++ "\" \"" ++ dir2 ++ "\""))
+          (filter (isExtensionOf "cdoc") dirfiles)
 
 ------------------------------------------------------------------------------
 --- Returns all packages where in each package
